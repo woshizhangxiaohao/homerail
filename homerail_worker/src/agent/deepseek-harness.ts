@@ -33,7 +33,6 @@ import { WORKER_RUNTIME_VERSION } from "../runtime-version.js";
 
 const DEFAULT_DSH_RUNTIME_COMMAND = "dsh-jsonrpc-agent-pkg";
 const DEFAULT_DSH_MAX_TOKENS = 32_768;
-const DEFAULT_DSH_MAX_BUILTIN_TOOL_CALLS = 24;
 const DSH_FORK_COMMIT = "ec75587a05bf0cc3f29dd0d5f875d3235f7deae6";
 const MCP_TOOL_PREFIX = "mcp__homerail__";
 const DEFAULT_SYSTEM_PROMPT = "You are a HomeRail DAG worker. Complete the assigned task and call the provided handoff tool exactly once.";
@@ -354,7 +353,7 @@ export class DeepSeekHarnessAdapter implements AgentClient {
 
     try {
       const reasoningEffort = dshReasoningEffort(context.reasoningEffort);
-      const maxBuiltinToolCalls = context.maxBuiltinToolCalls ?? DEFAULT_DSH_MAX_BUILTIN_TOOL_CALLS;
+      const maxBuiltinToolCalls = context.maxBuiltinToolCalls;
       const builtinTools = context.handoffOnly || !context.allowedBuiltinTools?.length
         ? []
         : createDeepSeekHarnessReadTools({
@@ -413,7 +412,7 @@ export class DeepSeekHarnessAdapter implements AgentClient {
           session_id: sessionId,
           tool_count: bridgeTools.length,
           builtin_tools: builtinTools.map((tool) => tool.name),
-          max_builtin_tool_calls: builtinTools.length > 0 ? maxBuiltinToolCalls : null,
+          max_builtin_tool_calls: builtinTools.length > 0 ? maxBuiltinToolCalls ?? null : null,
           max_tokens: this.maxTokens,
           reasoning_effort: reasoningEffort,
           workspace: context.workspace ?? process.cwd(),

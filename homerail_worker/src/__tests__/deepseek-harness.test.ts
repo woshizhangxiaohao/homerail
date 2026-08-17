@@ -197,7 +197,7 @@ describe("DeepSeekHarnessAdapter", () => {
     }));
   });
 
-  it("applies a DSH-only default built-in read budget", async () => {
+  it("does not impose a built-in read budget unless the workflow requests one", async () => {
     const workspace = tempRoot();
     mkdirSync(join(workspace, "repository"));
     const adapter = new DeepSeekHarnessAdapter({
@@ -213,7 +213,7 @@ describe("DeepSeekHarnessAdapter", () => {
     expect(events).toContainEqual(expect.objectContaining({
       type: "debug",
       source: "deepseek-harness",
-      data: expect.objectContaining({ max_builtin_tool_calls: 24 }),
+      data: expect.objectContaining({ max_builtin_tool_calls: null }),
     }));
   });
 

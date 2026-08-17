@@ -30,11 +30,11 @@ default, leaving room in large context windows for the prompt and accumulated
 tool transcript. Operators can set `HOMERAIL_DSH_MAX_TOKENS` to another
 positive integer when a model requires a tighter limit.
 
-The HomeRail Cordis composition selects reasoning effort `xhigh`. The pinned
-fork's native chat-completions adapter passes `low`, `medium`, `high`, `xhigh`,
-and `max` through unchanged, while preserving DSH's `high` default when a
-composition does not choose an effort. This lets the local Qwen endpoint use
-its declared vocabulary without changing the official DeepSeek default.
+The HomeRail Cordis composition reads `DSH_REASONING_EFFORT`, using `high` when
+the caller does not select an effort. The pinned fork's native
+chat-completions adapter passes `low`, `medium`, `high`, `xhigh`, and `max`
+through unchanged; `off` disables thinking. This lets a runtime profile tune
+the local Qwen endpoint without changing the official DeepSeek default.
 
 The child receives the same sanitized environment used by other agent
 backends. Manager/Worker control-plane tokens are removed, the external model
@@ -42,9 +42,9 @@ credential is supplied only to DSH, and bridge credentials are scoped to the
 turn. The DSH composition itself mounts no shell, filesystem, Skill,
 runtime-context, or job tools. Read-only filesystem calls are implemented by
 the Worker bridge, confined to the DAG's declared `workspace_access` roots,
-bounded for input/output size and call count, and protected against traversal
-and symlink escapes. Claude, Codex, and Kimi adapters keep their existing
-registry entries and code paths.
+bounded for input/output size, optionally bounded by an explicit workflow call
+limit, and protected against traversal and symlink escapes. Claude, Codex, and
+Kimi adapters keep their existing registry entries and code paths.
 
 ## Runtime packaging and source checkout setup
 
@@ -113,10 +113,10 @@ interrupts do not require Claude-specific protocol emulation.
   fork. Other DSH callers retain the fork's `high` default; the local-Qwen PR
   Review profile defaults to `medium` so three concurrent reviewers do not
   repeatedly fill their histories with `xhigh` reasoning.
-- DSH-managed read/search tools have an adapter-local default budget of 24
-  calls when the workflow does not provide an explicit budget. The
-  handoff tool is outside that budget, so exhaustion tells the model to stop
-  inspecting and submit its result. Other harness adapters are unchanged.
+- DSH-managed read/search tools enforce a call budget only when the workflow
+  explicitly sets `max_builtin_tool_calls`. HomeRail does not impose a DSH
+  default merely to compensate for one model's late handoff behavior. The
+  handoff tool remains outside any explicitly selected read/search budget.
 - DSH is not yet a complete Claude Code replacement in HomeRail: persistent
   sessions, full Manager Agent product integration, image-size optimization,
   and longer live reliability runs remain follow-up work.
@@ -130,3 +130,21 @@ the actual fork runtime and MCP client with a local OpenAI-compatible SSE
 server. It verifies that the first model request contains
 `mcp__homerail__handoff`, DSH invokes the HomeRail handler with structured
 arguments, and a second model request completes with mapped text and usage.
+
+The 2026-08-17 FP8 live test used the existing three-reviewer PR Review DAG,
+three independent DSH processes, and the same local Qwen3.8 27B model setting
+for all historical reviewer labels. The unbounded `xhigh` run
+([Actions](https://github.com/xiaotianfotos/homerail/actions/runs/32023994801),
+HomeRail run `d40c93aa-d9ff-4b57-a97c-e1c98c8d3e14`) reached the stable
+runner's 70-minute limit. One reviewer completed through a correction turn;
+the other two were still inspecting after 32 and 37 tool calls. The model
+service reported no request errors, but the three long contexts drove KV use
+to 93--99.7 percent and caused 18 preemptions.
+
+That run processed about 8.16 million prompt tokens: about 4.96 million were
+local prefix-cache hits and 3.20 million were recomputed. Cache therefore
+worked, but it could not accelerate roughly 166,000 generated tokens, new tool
+results appended after each exact cached prefix, or private session tails
+evicted under concurrent KV pressure. No DSH compaction plugin was mounted and
+the transcripts contained no compaction event. The observed prefill was normal
+multi-turn reconstruction and cache eviction, not conversation compression.
