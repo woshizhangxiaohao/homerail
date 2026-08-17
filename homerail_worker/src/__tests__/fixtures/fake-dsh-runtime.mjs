@@ -92,6 +92,7 @@ lines.on("line", (line) => {
         params: request.params,
         cordisConfig: process.env.DSH_CORDIS_CONFIG,
         baseUrl: process.env.DEEPSEEK_BASE_URL,
+        reasoningEffort: process.env.DSH_REASONING_EFFORT,
         managerToken: process.env.HOMERAIL_WORKER_TOKEN,
       })}\n`);
     }

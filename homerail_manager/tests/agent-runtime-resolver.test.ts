@@ -531,6 +531,7 @@ describe("agent runtime resolver", () => {
       surface: "dag",
       settingId: setting.id,
       agentType: "deepseek-harness",
+      reasoningEffort: "medium",
     });
 
     expect(manager).toMatchObject({
@@ -543,8 +544,15 @@ describe("agent runtime resolver", () => {
       agent_type: "deepseek_harness",
       protocol: "openai_compatible",
       base_url: "https://dsh.example/v1",
+      reasoning_effort: "medium",
       runtime_placement: "container",
     });
+    expect(() => resolveAgentRuntimeConfig({
+      surface: "dag",
+      settingId: setting.id,
+      agentType: "deepseek-harness",
+      reasoningEffort: "ultra",
+    })).toThrow(/DeepSeek Harness does not support reasoning effort 'ultra'/);
   });
 
   it("rejects DeepSeek Harness for non-Chat-Completions settings", () => {

@@ -8,6 +8,8 @@ export const PR_REVIEW_MODEL_AGENTS = Object.freeze({
   glm_reviewer: "third",
 });
 
+const DSH_REASONING_EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
+
 function nonEmpty(value) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -26,6 +28,15 @@ function normalizedAgentType(value) {
     throw new Error(`Unsupported PR Review agent type: ${agentType}`);
   }
   return agentType;
+}
+
+function normalizedDshReasoningEffort(value, agentType) {
+  if (agentType !== "deepseek_harness") return undefined;
+  const effort = nonEmpty(value) ?? "medium";
+  if (!DSH_REASONING_EFFORTS.has(effort)) {
+    throw new Error(`Unsupported DeepSeek Harness reasoning effort: ${effort}`);
+  }
+  return effort;
 }
 
 export function selectRuntimeSetting(settings, selector, role, agentType = "claude-sdk") {
@@ -67,8 +78,10 @@ export function prReviewRuntimeProfileYaml({
   arbiter,
   third,
   agentType = "claude-sdk",
+  reasoningEffort,
 }) {
   agentType = normalizedAgentType(agentType);
+  reasoningEffort = normalizedDshReasoningEffort(reasoningEffort, agentType);
   if (agentType === "claude-sdk" && new Set([primary.id, arbiter.id, third.id]).size !== 3) {
     throw new Error("PR Review requires three distinct LLM settings");
   }
@@ -83,11 +96,13 @@ export function prReviewRuntimeProfileYaml({
     "default:",
     `  llm_setting_id: ${yamlString(primary.id)}`,
     `  agent_type: ${agentType}`,
+    ...(reasoningEffort ? [`  reasoning_effort: ${reasoningEffort}`] : []),
     "agents:",
     ...Object.entries(PR_REVIEW_MODEL_AGENTS).flatMap(([agentId, role]) => [
       `  ${agentId}:`,
       `    llm_setting_id: ${yamlString(settingsByRole[role].id)}`,
       `    agent_type: ${agentType}`,
+      ...(reasoningEffort ? [`    reasoning_effort: ${reasoningEffort}`] : []),
     ]),
     "",
   ].join("\n");
@@ -120,6 +135,7 @@ export async function configurePrReviewRuntimeProfile({
   primarySelector = process.env.HOMERAIL_PR_REVIEW_PRIMARY_MODEL,
   arbiterSelector = process.env.HOMERAIL_PR_REVIEW_ARBITER_MODEL,
   thirdSelector = process.env.HOMERAIL_PR_REVIEW_THIRD_MODEL,
+  reasoningEffort = process.env.HOMERAIL_PR_REVIEW_REASONING_EFFORT,
 } = {}) {
   const normalizedManagerUrl = managerUrl.replace(/\/+$/, "");
   profileId = nonEmpty(profileId) ?? "pr-review-mixed";
@@ -131,7 +147,15 @@ export async function configurePrReviewRuntimeProfile({
   const primary = selectRuntimeSetting(settings, modelSelector ?? primarySelector, "primary", agentType);
   const arbiter = selectRuntimeSetting(settings, modelSelector ?? arbiterSelector, "arbiter", agentType);
   const third = selectRuntimeSetting(settings, modelSelector ?? thirdSelector, "third", agentType);
-  const yamlText = prReviewRuntimeProfileYaml({ profileId, workflowId, primary, arbiter, third, agentType });
+  const yamlText = prReviewRuntimeProfileYaml({
+    profileId,
+    workflowId,
+    primary,
+    arbiter,
+    third,
+    agentType,
+    reasoningEffort,
+  });
   const synced = await request(normalizedManagerUrl, "/api/dag/profiles/sync", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

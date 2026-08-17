@@ -41,13 +41,15 @@ async function collect(adapter: DeepSeekHarnessAdapter, runContext: AgentRunCont
 }
 
 describe("DeepSeekHarnessAdapter", () => {
-  it("pins the compatible fork revision and selects the local model effort vocabulary", () => {
+  it("pins the compatible fork revision and projects the selected model effort", () => {
     const dockerfile = readFileSync(new URL("../../Dockerfile", import.meta.url), "utf8");
     const composition = readFileSync(new URL("../../dsh/homerail.cordis.yml", import.meta.url), "utf8");
     const dockerCommit = /^ARG HOMERAIL_DSH_FORK_COMMIT=([a-f0-9]{40})$/m.exec(dockerfile)?.[1];
 
     expect(dockerCommit).toBe(_deepSeekHarnessForkCommitForTest);
-    expect(composition).toMatch(/^\s{4}reasoningEffort: xhigh$/m);
+    expect(composition).toMatch(
+      /^\s{4}reasoningEffort: !!js process\.env\.DSH_REASONING_EFFORT \|\| 'high'$/m,
+    );
   });
 
   it("maps DSH streaming, tool, usage, and completion events without leaking the Manager token", async () => {
@@ -97,7 +99,38 @@ describe("DeepSeekHarnessAdapter", () => {
     expect(recorded.managerToken).toBeUndefined();
     expect(recorded.baseUrl).toBe("https://example.invalid/v1");
     expect(recorded.cordisConfig).toBe(customConfig);
+    expect(recorded.reasoningEffort).toBe("high");
     expect(recorded.params).toMatchObject({ maxTokens: 32_768 });
+  });
+
+  it("passes an explicit compatible reasoning effort to the DSH composition", async () => {
+    const root = tempRoot();
+    const recordFile = join(root, "runtime.jsonl");
+    const adapter = new DeepSeekHarnessAdapter({
+      runtimeCommand: process.execPath,
+      runtimeArgs: [fakeRuntime],
+    });
+    await collect(adapter, context({
+      reasoningEffort: "medium",
+      environmentVariables: { DSH_FAKE_RECORD_FILE: recordFile },
+    }));
+
+    const recorded = JSON.parse(readFileSync(recordFile, "utf8").trim()) as Record<string, unknown>;
+    expect(recorded.reasoningEffort).toBe("medium");
+  });
+
+  it("rejects an incompatible reasoning effort before starting DSH", async () => {
+    const adapter = new DeepSeekHarnessAdapter({
+      runtimeCommand: process.execPath,
+      runtimeArgs: [fakeRuntime],
+    });
+
+    const events = await collect(adapter, context({ reasoningEffort: "ultra" }));
+    expect(events).toContainEqual({
+      type: "error",
+      message: expect.stringContaining("DeepSeek Harness reasoning effort must be one of"),
+    });
+    expect(events.at(-1)).toMatchObject({ type: "done" });
   });
 
   it("allows an explicit bounded per-request output token limit", async () => {
@@ -159,7 +192,28 @@ describe("DeepSeekHarnessAdapter", () => {
       data: expect.objectContaining({
         tool_count: 4,
         builtin_tools: ["Read", "Grep", "Glob", "LS"],
+        max_builtin_tool_calls: 12,
       }),
+    }));
+  });
+
+  it("applies a DSH-only default built-in read budget", async () => {
+    const workspace = tempRoot();
+    mkdirSync(join(workspace, "repository"));
+    const adapter = new DeepSeekHarnessAdapter({
+      runtimeCommand: process.execPath,
+      runtimeArgs: [fakeRuntime],
+    });
+    const events = await collect(adapter, context({
+      workspace,
+      allowedBuiltinTools: ["Read"],
+      workspaceAccess: { writable_paths: [], readonly_paths: ["repository"] },
+    }));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "debug",
+      source: "deepseek-harness",
+      data: expect.objectContaining({ max_builtin_tool_calls: 24 }),
     }));
   });
 

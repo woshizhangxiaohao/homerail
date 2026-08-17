@@ -38,6 +38,8 @@ import {
 
 export type AgentRuntimeSurface = "manager_agent" | "dag";
 
+const DSH_REASONING_EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
+
 export interface AgentRuntimeResolutionInput {
   surface: AgentRuntimeSurface;
   providerName?: string;
@@ -244,6 +246,14 @@ export function resolveAgentRuntimeConfig(input: AgentRuntimeResolutionInput): A
     if (serviceTier && supportedTiers && !supportedTiers.includes(serviceTier)) {
       throw new Error(
         `Codex Responses model '${setting.provider_id}/${model}' does not support service tier '${serviceTier}'.`,
+      );
+    }
+  } else if (agentType === "deepseek_harness") {
+    reasoningEffort = input.reasoningEffort?.trim() || undefined;
+    if (reasoningEffort && !DSH_REASONING_EFFORTS.has(reasoningEffort)) {
+      throw new Error(
+        `DeepSeek Harness does not support reasoning effort '${reasoningEffort}'. `
+        + `Supported values: ${[...DSH_REASONING_EFFORTS].join(", ")}.`,
       );
     }
   }

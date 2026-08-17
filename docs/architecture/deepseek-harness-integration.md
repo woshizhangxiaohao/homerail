@@ -109,6 +109,14 @@ interrupts do not require Claude-specific protocol emulation.
   `LS`. Shell and mutation tools remain unsupported and fail closed. These
   four names are HomeRail-managed MCP implementations, not DSH-native
   filesystem plugins.
+- HomeRail passes the runtime profile's DSH reasoning effort through to the
+  fork. Other DSH callers retain the fork's `high` default; the local-Qwen PR
+  Review profile defaults to `medium` so three concurrent reviewers do not
+  repeatedly fill their histories with `xhigh` reasoning.
+- DSH-managed read/search tools have an adapter-local default budget of 24
+  calls when the workflow does not provide an explicit budget. The
+  handoff tool is outside that budget, so exhaustion tells the model to stop
+  inspecting and submit its result. Other harness adapters are unchanged.
 - DSH is not yet a complete Claude Code replacement in HomeRail: persistent
   sessions, full Manager Agent product integration, image-size optimization,
   and longer live reliability runs remain follow-up work.

@@ -33,9 +33,11 @@ import { WORKER_RUNTIME_VERSION } from "../runtime-version.js";
 
 const DEFAULT_DSH_RUNTIME_COMMAND = "dsh-jsonrpc-agent-pkg";
 const DEFAULT_DSH_MAX_TOKENS = 32_768;
+const DEFAULT_DSH_MAX_BUILTIN_TOOL_CALLS = 24;
 const DSH_FORK_COMMIT = "ec75587a05bf0cc3f29dd0d5f875d3235f7deae6";
 const MCP_TOOL_PREFIX = "mcp__homerail__";
 const DEFAULT_SYSTEM_PROMPT = "You are a HomeRail DAG worker. Complete the assigned task and call the provided handoff tool exactly once.";
+const DSH_REASONING_EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
 
 interface DeepSeekHarnessAdapterOptions {
   runtimeCommand?: string;
@@ -117,6 +119,14 @@ function parseMaxTokens(value: number | string | undefined): number {
     throw new Error("HOMERAIL_DSH_MAX_TOKENS must be a positive integer");
   }
   return parsed;
+}
+
+function dshReasoningEffort(value: string | undefined): string {
+  const effort = value?.trim() || "high";
+  if (!DSH_REASONING_EFFORTS.has(effort)) {
+    throw new Error(`DeepSeek Harness reasoning effort must be one of: ${[...DSH_REASONING_EFFORTS].join(", ")}`);
+  }
+  return effort;
 }
 
 function defaultCordisConfigPath(): string {
@@ -343,13 +353,15 @@ export class DeepSeekHarnessAdapter implements AgentClient {
     const queue = new AsyncQueue<AgentEvent>();
 
     try {
+      const reasoningEffort = dshReasoningEffort(context.reasoningEffort);
+      const maxBuiltinToolCalls = context.maxBuiltinToolCalls ?? DEFAULT_DSH_MAX_BUILTIN_TOOL_CALLS;
       const builtinTools = context.handoffOnly || !context.allowedBuiltinTools?.length
         ? []
         : createDeepSeekHarnessReadTools({
             workspace: context.workspace ?? process.cwd(),
             workspaceAccess: context.workspaceAccess!,
             allowedTools: context.allowedBuiltinTools,
-            maxCalls: context.maxBuiltinToolCalls,
+            maxCalls: maxBuiltinToolCalls,
           });
       const names = new Set<string>();
       const bridgeTools = [...builtinTools, ...tools].filter((tool) => {
@@ -368,6 +380,7 @@ export class DeepSeekHarnessAdapter implements AgentClient {
         DSH_CORDIS_CONFIG: this.cordisConfigPath,
         DSH_CWD: context.workspace ?? process.cwd(),
         DSH_MODEL: context.model,
+        DSH_REASONING_EFFORT: reasoningEffort,
         DSH_SESSION_ROOT: join(runtimeRoot, "sessions"),
         DSH_SYSTEM_PROMPT: projectedSystemPrompt(context),
         DEEPSEEK_API_KEY: context.apiKey,
@@ -400,7 +413,9 @@ export class DeepSeekHarnessAdapter implements AgentClient {
           session_id: sessionId,
           tool_count: bridgeTools.length,
           builtin_tools: builtinTools.map((tool) => tool.name),
+          max_builtin_tool_calls: builtinTools.length > 0 ? maxBuiltinToolCalls : null,
           max_tokens: this.maxTokens,
+          reasoning_effort: reasoningEffort,
           workspace: context.workspace ?? process.cwd(),
           process_isolation: true,
           resume_supported: false,
