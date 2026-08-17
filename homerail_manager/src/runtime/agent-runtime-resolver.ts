@@ -1,5 +1,6 @@
 import {
   findActiveCodexCompatibleSetting,
+  findActiveDeepSeekHarnessCompatibleSetting,
   findActiveClaudeSdkCompatibleSetting,
   findActiveLlmRuntimeSetting,
   findActiveSetting,
@@ -7,6 +8,7 @@ import {
   getSetting,
   isVoiceServiceSetting,
   resolveCodexResponsesBaseUrlForSetting,
+  resolveDeepSeekHarnessBaseUrlForSetting,
   resolveClaudeSdkBaseUrlForSetting,
   resolveClaudeSdkAuthModeForSetting,
   type LLMSetting,
@@ -127,6 +129,8 @@ function settingForInput(input: AgentRuntimeResolutionInput): LLMSetting {
     ? findActiveKimiSetting(input.modelName)
     : requested === "codex_appserver"
     ? findActiveCodexCompatibleSetting()
+    : requested === "deepseek_harness"
+    ? findActiveDeepSeekHarnessCompatibleSetting()
     : input.surface === "manager_agent" || requested === "claude-sdk"
     ? findActiveClaudeSdkCompatibleSetting()
     : input.surface === "dag"
@@ -165,6 +169,9 @@ function baseUrlForSetting(setting: LLMSetting, agentType: string): string | und
   if (agentType === "claude-sdk") return resolveClaudeSdkBaseUrlForSetting(setting);
   if (agentType === "codex_appserver") return resolveCodexResponsesBaseUrlForSetting(setting);
   if (agentType === "kimi_code") return setting.base_url ?? setting.chat_completions_base_url;
+  if (agentType === "deepseek_harness") {
+    return resolveDeepSeekHarnessBaseUrlForSetting(setting);
+  }
   return setting.base_url ?? setting.chat_completions_base_url;
 }
 
@@ -196,6 +203,9 @@ export function resolveAgentRuntimeConfig(input: AgentRuntimeResolutionInput): A
 
   const setting = settingForInput(input);
   const agentType = agentTypeForSetting(setting, input);
+  if (agentType === "deepseek_harness" && setting.protocol !== "openai_compatible") {
+    throw new Error(`DeepSeek Harness requires an OpenAI-compatible setting, got ${setting.provider_id}/${setting.model_name} (${setting.protocol})`);
+  }
   const baseUrl = baseUrlForSetting(setting, agentType);
   const requestedModel = input.modelName
     ? canonicalModelNameForEndpoint(setting.provider_id, setting.endpoint_id, input.modelName)

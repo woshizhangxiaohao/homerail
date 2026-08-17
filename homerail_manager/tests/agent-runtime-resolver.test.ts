@@ -503,6 +503,73 @@ describe("agent runtime resolver", () => {
     }).runtime_placement).toBe("container");
   });
 
+  it("resolves DeepSeek Harness against OpenAI-compatible settings on both surfaces", () => {
+    upsertProvider({
+      id: "dsh-provider",
+      name: "DSH Provider",
+      default_model: "dsh-model",
+      base_url: "https://dsh.example/v1",
+      chat_completions_base_url: "https://dsh.example/v1",
+    });
+    const setting = createSetting({
+      provider_id: "dsh-provider",
+      model_name: "dsh-model",
+      api_key: "dsh-secret",
+      protocol: "openai_compatible",
+      base_url: "https://dsh.example/v1",
+      chat_completions_base_url: "https://dsh.example/v1",
+      is_active: true,
+      is_default: true,
+    });
+
+    const manager = resolveAgentRuntimeConfig({
+      surface: "manager_agent",
+      settingId: setting.id,
+      harness: "dsh",
+    });
+    const dag = resolveAgentRuntimeConfig({
+      surface: "dag",
+      settingId: setting.id,
+      agentType: "deepseek-harness",
+    });
+
+    expect(manager).toMatchObject({
+      agent_type: "deepseek_harness",
+      protocol: "openai_compatible",
+      base_url: "https://dsh.example/v1",
+      runtime_placement: "host_shell",
+    });
+    expect(dag).toMatchObject({
+      agent_type: "deepseek_harness",
+      protocol: "openai_compatible",
+      base_url: "https://dsh.example/v1",
+      runtime_placement: "container",
+    });
+  });
+
+  it("rejects DeepSeek Harness for non-Chat-Completions settings", () => {
+    upsertProvider({
+      id: "dsh-anthropic-only",
+      default_model: "anthropic-model",
+      anthropic_base_url: "https://dsh.example/anthropic",
+    });
+    const setting = createSetting({
+      provider_id: "dsh-anthropic-only",
+      model_name: "anthropic-model",
+      api_key: "dsh-secret",
+      protocol: "anthropic_compatible",
+      anthropic_base_url: "https://dsh.example/anthropic",
+      is_active: true,
+      is_default: true,
+    });
+
+    expect(() => resolveAgentRuntimeConfig({
+      surface: "manager_agent",
+      settingId: setting.id,
+      harness: "deepseek_harness",
+    })).toThrow(/requires an OpenAI-compatible setting/);
+  });
+
   it("rejects Claude SDK when only a Chat Completions endpoint is configured", () => {
     upsertProvider({
       id: "chat-only-provider",

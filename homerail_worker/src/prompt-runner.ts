@@ -136,6 +136,11 @@ function assertAgentRuntimeProtocol(agentBackend: string | undefined, protocol: 
       "Codex app-server requires a Responses-compatible endpoint; Chat Completions and Anthropic protocols are not valid Codex wire transports.",
     );
   }
+  if (backend === "deepseek_harness" && protocol !== "openai_compatible") {
+    throw new Error(
+      "DeepSeek Harness requires an OpenAI-compatible Chat Completions endpoint.",
+    );
+  }
 }
 
 function assertBuiltinToolPolicySupported(

@@ -1511,6 +1511,26 @@ export function findActiveCodexCompatibleSetting(): LLMSetting | undefined {
     })[0];
 }
 
+export function resolveDeepSeekHarnessBaseUrlForSetting(setting: LLMSetting): string | undefined {
+  if (setting.protocol !== "openai_compatible") return undefined;
+  return setting.chat_completions_base_url ?? setting.base_url;
+}
+
+export function findActiveDeepSeekHarnessCompatibleSetting(): LLMSetting | undefined {
+  return _readSettings()
+    .filter((setting) => (
+      setting.is_active &&
+      setting.preset_status !== "missing" &&
+      setting.supports_llm &&
+      !isVoiceServiceSetting(setting) &&
+      Boolean(resolveDeepSeekHarnessBaseUrlForSetting(setting))
+    ))
+    .sort((left, right) => {
+      if (left.is_default !== right.is_default) return left.is_default ? -1 : 1;
+      return right.updated_at.localeCompare(left.updated_at);
+    })[0];
+}
+
 export function findActiveLlmRuntimeSetting(): LLMSetting | undefined {
   return _readSettings()
     .filter((s) => s.is_active && s.preset_status !== "missing" && s.supports_llm && !isVoiceServiceSetting(s))

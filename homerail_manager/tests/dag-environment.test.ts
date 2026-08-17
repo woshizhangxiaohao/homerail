@@ -68,6 +68,7 @@ function fingerprintFixture(): string {
       },
     }),
     "homerail_worker/tsconfig.json": JSON.stringify({ compilerOptions: { strict: true } }),
+    "homerail_worker/dsh/homerail.cordis.yml": "name: homerail-dsh-test\n",
     "homerail_worker/src/index.ts": "export const worker = true;\n",
     "homerail_protocol/package.json": JSON.stringify({
       name: "homerail-protocol",
@@ -257,6 +258,17 @@ it("changes the Worker source fingerprint when build-relevant content changes", 
   fs.appendFileSync(
     path.join(repoRoot, "homerail_worker", "src", "index.ts"),
     "export const changed = true;\n",
+  );
+
+  expect(dagWorkerSourceFingerprint(repoRoot)).not.toBe(original);
+});
+
+it("changes the Worker source fingerprint when the DSH composition changes", () => {
+  const repoRoot = fingerprintFixture();
+  const original = dagWorkerSourceFingerprint(repoRoot);
+  fs.appendFileSync(
+    path.join(repoRoot, "homerail_worker", "dsh", "homerail.cordis.yml"),
+    "changed: true\n",
   );
 
   expect(dagWorkerSourceFingerprint(repoRoot)).not.toBe(original);

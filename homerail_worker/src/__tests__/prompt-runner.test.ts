@@ -929,6 +929,30 @@ describe("prompt runner", () => {
     expect(parsed.map((msg) => msg.type)).toContain("SESSION_END");
   });
 
+  it("fails DeepSeek Harness before execution for a non-OpenAI protocol", async () => {
+    const sent: string[] = [];
+    await runPrompt(
+      {
+        task: "test",
+        sender: "test",
+        runId: "run-dsh-protocol-invalid",
+        llmProtocol: "anthropic_compatible",
+        dagConfig: makeConfigWith({ agent_type: "deepseek_harness" }),
+      },
+      {
+        wsSend: (data) => sent.push(data),
+        agentBackend: "dsh",
+      },
+    );
+
+    expect(sent.map((message) => JSON.parse(message))).toContainEqual(expect.objectContaining({
+      type: "node_error",
+      data: expect.objectContaining({
+        message: expect.stringContaining("OpenAI-compatible Chat Completions endpoint"),
+      }),
+    }));
+  });
+
   it("streams agent debug events without sending them as content", async () => {
     const mockAgent: AgentClient = {
       run() {

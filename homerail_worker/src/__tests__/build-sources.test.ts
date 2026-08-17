@@ -674,7 +674,7 @@ describe("Worker Dockerfile source wiring", () => {
 
   it("wires the APT override helper into every stage before apt-get update", () => {
     const stages = dockerfileStages();
-    expect(stages.length).toBe(2);
+    expect(stages.length).toBeGreaterThanOrEqual(2);
     for (const stage of stages) {
       const body = stage.lines.join("\n");
       expect(body).toMatch(/^ARG HOMERAIL_WORKER_BUILD_APT_MIRROR$/m);
@@ -697,17 +697,18 @@ describe("Worker Dockerfile source wiring", () => {
     expect(dockerfile).not.toMatch(/ARG HOMERAIL_WORKER_BUILD_APT_SECURITY_MIRROR=/);
   });
 
-  it("declares NPM_CONFIG_REGISTRY before every npm build operation in the final stage", () => {
+  it("declares NPM_CONFIG_REGISTRY before every npm build operation", () => {
     const stages = dockerfileStages();
-    const finalStage = stages[stages.length - 1];
-    const argIndex = finalStage.lines.findIndex((line) => line === "ARG NPM_CONFIG_REGISTRY");
-    expect(argIndex).toBeGreaterThanOrEqual(0);
-    const npmRuns = npmInstructions(finalStage.lines);
-    expect(npmRuns.length).toBeGreaterThan(0);
-    for (const instruction of npmRuns) {
-      expect(instruction.lineIndex).toBeGreaterThan(argIndex);
+    const npmStages = stages.filter((stage) => npmInstructions(stage.lines).length > 0);
+    expect(npmStages.length).toBeGreaterThan(0);
+    for (const stage of npmStages) {
+      const argIndex = stage.lines.findIndex((line) => line === "ARG NPM_CONFIG_REGISTRY");
+      expect(argIndex).toBeGreaterThanOrEqual(0);
+      for (const instruction of npmInstructions(stage.lines)) {
+        expect(instruction.lineIndex).toBeGreaterThan(argIndex);
+      }
     }
-    expect(dockerfile.match(/^ARG NPM_CONFIG_REGISTRY$/gm)).toHaveLength(1);
+    expect(dockerfile.match(/^ARG NPM_CONFIG_REGISTRY$/gm)).toHaveLength(npmStages.length);
   });
 
   it("keeps the npm registry override build-only", () => {
