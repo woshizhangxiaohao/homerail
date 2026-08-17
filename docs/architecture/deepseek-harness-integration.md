@@ -148,3 +148,23 @@ results appended after each exact cached prefix, or private session tails
 evicted under concurrent KV pressure. No DSH compaction plugin was mounted and
 the transcripts contained no compaction event. The observed prefill was normal
 multi-turn reconstruction and cache eviction, not conversation compression.
+
+The follow-up `medium` diagnostic
+([Actions](https://github.com/xiaotianfotos/homerail/actions/runs/32030182632),
+HomeRail run `1ee15bc9-db13-47ca-8d71-c55dda6a9dea`) completed successfully in
+about 47 minutes 35 seconds with a 9/9 scorecard. All three reviewers produced
+accepted approve votes, attested 33/33-file coverage, retained no findings, and
+used no correction or automatic handoff fallback. Their final cumulative DSH
+usage was about 5.54 million input tokens and 133,526 output tokens across 66
+tool calls. The first two reviewers finished in about 23 and 24 minutes after
+17 and 21 built-in calls, respectively. The slow reviewer took about 47
+minutes, emitted 72,938 output tokens, attempted 25 built-in calls, received
+one denial from the run's experimental 24-call limit, and then handed off.
+
+This proved that the DSH tool and handoff path can complete a real review, but
+also that the local Qwen3.8 27B FP8 configuration is not yet practical for an
+unattended three-reviewer DAG: `medium` reasoning still allowed multi-minute
+6,000--17,000-token model rounds. The final integration does not keep that
+experiment as an adapter default. A call limit is enforced only when the
+workflow explicitly requests one; model-specific late convergence is not
+converted into a global DSH policy.
