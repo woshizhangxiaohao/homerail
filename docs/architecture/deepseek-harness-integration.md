@@ -25,6 +25,11 @@ barrier that prevents a first prompt from racing asynchronous MCP discovery.
 5. closes the child, bridge, temporary proxy, and session directory when the
    turn ends.
 
+Each DSH conversation-model request is capped at 32,768 output tokens by
+default, leaving room in large context windows for the prompt and accumulated
+tool transcript. Operators can set `HOMERAIL_DSH_MAX_TOKENS` to another
+positive integer when a model requires a tighter limit.
+
 The child receives the same sanitized environment used by other agent
 backends. Manager/Worker control-plane tokens are removed, the external model
 credential is supplied only to DSH, and bridge credentials are scoped to the

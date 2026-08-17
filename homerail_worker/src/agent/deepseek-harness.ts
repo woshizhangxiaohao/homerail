@@ -32,6 +32,7 @@ import { createDeepSeekHarnessReadTools } from "./deepseek-harness-read-tools.js
 import { WORKER_RUNTIME_VERSION } from "../runtime-version.js";
 
 const DEFAULT_DSH_RUNTIME_COMMAND = "dsh-jsonrpc-agent-pkg";
+const DEFAULT_DSH_MAX_TOKENS = 32_768;
 const DSH_FORK_COMMIT = "559cd23cc2f1b96da2fde230064da2dc3781b126";
 const MCP_TOOL_PREFIX = "mcp__homerail__";
 const DEFAULT_SYSTEM_PROMPT = "You are a HomeRail DAG worker. Complete the assigned task and call the provided handoff tool exactly once.";
@@ -40,6 +41,7 @@ interface DeepSeekHarnessAdapterOptions {
   runtimeCommand?: string;
   runtimeArgs?: string[];
   cordisConfigPath?: string;
+  maxTokens?: number;
 }
 
 interface ToolBridge {
@@ -104,6 +106,15 @@ function parseRuntimeArgs(value: string | undefined): string[] {
   const parsed: unknown = JSON.parse(value);
   if (!Array.isArray(parsed) || !parsed.every((entry) => typeof entry === "string")) {
     throw new Error("HOMERAIL_DSH_RUNTIME_ARGS must be a JSON array of strings");
+  }
+  return parsed;
+}
+
+function parseMaxTokens(value: number | string | undefined): number {
+  if (value === undefined || value === "") return DEFAULT_DSH_MAX_TOKENS;
+  const parsed = typeof value === "number" ? value : Number(value);
+  if (!Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error("HOMERAIL_DSH_MAX_TOKENS must be a positive integer");
   }
   return parsed;
 }
@@ -297,6 +308,7 @@ export class DeepSeekHarnessAdapter implements AgentClient {
   private readonly runtimeCommand: string;
   private readonly runtimeArgs: string[];
   private readonly cordisConfigPath: string;
+  private readonly maxTokens: number;
 
   constructor(options: DeepSeekHarnessAdapterOptions = {}) {
     this.runtimeCommand = options.runtimeCommand
@@ -308,6 +320,9 @@ export class DeepSeekHarnessAdapter implements AgentClient {
       options.cordisConfigPath
         ?? process.env.HOMERAIL_DSH_CORDIS_CONFIG?.trim()
         ?? defaultCordisConfigPath(),
+    );
+    this.maxTokens = parseMaxTokens(
+      options.maxTokens ?? process.env.HOMERAIL_DSH_MAX_TOKENS?.trim(),
     );
   }
 
@@ -371,6 +386,7 @@ export class DeepSeekHarnessAdapter implements AgentClient {
         cwd: context.workspace,
         provider: "deepseek-official",
         model: context.model,
+        maxTokens: this.maxTokens,
       });
 
       yield {
@@ -384,6 +400,7 @@ export class DeepSeekHarnessAdapter implements AgentClient {
           session_id: sessionId,
           tool_count: bridgeTools.length,
           builtin_tools: builtinTools.map((tool) => tool.name),
+          max_tokens: this.maxTokens,
           workspace: context.workspace ?? process.cwd(),
           process_isolation: true,
           resume_supported: false,

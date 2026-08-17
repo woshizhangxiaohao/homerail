@@ -88,6 +88,23 @@ describe("DeepSeekHarnessAdapter", () => {
     expect(recorded.managerToken).toBeUndefined();
     expect(recorded.baseUrl).toBe("https://example.invalid/v1");
     expect(recorded.cordisConfig).toBe(customConfig);
+    expect(recorded.params).toMatchObject({ maxTokens: 32_768 });
+  });
+
+  it("allows an explicit bounded per-request output token limit", async () => {
+    const root = tempRoot();
+    const recordFile = join(root, "runtime.jsonl");
+    const adapter = new DeepSeekHarnessAdapter({
+      runtimeCommand: process.execPath,
+      runtimeArgs: [fakeRuntime],
+      maxTokens: 16_384,
+    });
+    await collect(adapter, context({
+      environmentVariables: { DSH_FAKE_RECORD_FILE: recordFile },
+    }));
+
+    const recorded = JSON.parse(readFileSync(recordFile, "utf8").trim()) as Record<string, unknown>;
+    expect(recorded.params).toMatchObject({ maxTokens: 16_384 });
   });
 
   it("routes queued live steering through the fork session/steer method", async () => {
