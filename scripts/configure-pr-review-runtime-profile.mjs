@@ -20,7 +20,16 @@ function yamlString(value) {
   return JSON.stringify(String(value));
 }
 
-export function selectRuntimeSetting(settings, selector, role) {
+function normalizedAgentType(value) {
+  const agentType = nonEmpty(value) ?? "claude-sdk";
+  if (agentType !== "claude-sdk" && agentType !== "deepseek_harness") {
+    throw new Error(`Unsupported PR Review agent type: ${agentType}`);
+  }
+  return agentType;
+}
+
+export function selectRuntimeSetting(settings, selector, role, agentType = "claude-sdk") {
+  agentType = normalizedAgentType(agentType);
   const wanted = nonEmpty(selector);
   if (!wanted) throw new Error(`HOMERAIL_PR_REVIEW_${role.toUpperCase()}_MODEL is required for stable review`);
   const matches = settings.filter((setting) => (
@@ -35,8 +44,18 @@ export function selectRuntimeSetting(settings, selector, role) {
   if (!bool(setting.is_active) || !bool(setting.supports_llm)) {
     throw new Error(`PR Review ${role} model is not an active LLM setting: ${wanted}`);
   }
-  if (!nonEmpty(setting.anthropic_base_url)) {
+  if (agentType === "claude-sdk" && !nonEmpty(setting.anthropic_base_url)) {
     throw new Error(`PR Review ${role} model has no Anthropic-compatible endpoint: ${wanted}`);
+  }
+  if (agentType === "deepseek_harness" && setting.protocol !== "openai_compatible") {
+    throw new Error(`PR Review ${role} model is not OpenAI-compatible for DeepSeek Harness: ${wanted}`);
+  }
+  if (
+    agentType === "deepseek_harness"
+    && !nonEmpty(setting.chat_completions_base_url)
+    && !nonEmpty(setting.base_url)
+  ) {
+    throw new Error(`PR Review ${role} model has no Chat Completions endpoint: ${wanted}`);
   }
   return setting;
 }
@@ -47,23 +66,28 @@ export function prReviewRuntimeProfileYaml({
   primary,
   arbiter,
   third,
+  agentType = "claude-sdk",
 }) {
-  if (new Set([primary.id, arbiter.id, third.id]).size !== 3) {
+  agentType = normalizedAgentType(agentType);
+  if (agentType === "claude-sdk" && new Set([primary.id, arbiter.id, third.id]).size !== 3) {
     throw new Error("PR Review requires three distinct LLM settings");
   }
   const settingsByRole = { primary, arbiter, third };
+  const description = agentType === "deepseek_harness"
+    ? "Three independent DeepSeek Harness reviewer processes; model settings may intentionally be shared."
+    : "Three-model PR review with one independent vote per model.";
   return [
     `profile_id: ${yamlString(profileId)}`,
     `workflow_id: ${yamlString(workflowId)}`,
-    "description: Three-model PR review with one independent vote per model.",
+    `description: ${description}`,
     "default:",
     `  llm_setting_id: ${yamlString(primary.id)}`,
-    "  agent_type: claude-sdk",
+    `  agent_type: ${agentType}`,
     "agents:",
     ...Object.entries(PR_REVIEW_MODEL_AGENTS).flatMap(([agentId, role]) => [
       `  ${agentId}:`,
       `    llm_setting_id: ${yamlString(settingsByRole[role].id)}`,
-      "    agent_type: claude-sdk",
+      `    agent_type: ${agentType}`,
     ]),
     "",
   ].join("\n");
@@ -91,17 +115,23 @@ export async function configurePrReviewRuntimeProfile({
   managerUrl = process.env.HOMERAIL_MANAGER_URL ?? "http://127.0.0.1:29191",
   profileId = process.env.HOMERAIL_PR_REVIEW_PROFILE_ID ?? "pr-review-mixed",
   workflowId = process.env.HOMERAIL_PR_REVIEW_WORKFLOW_ID ?? "pr-review",
+  agentType = process.env.HOMERAIL_PR_REVIEW_AGENT_TYPE ?? "claude-sdk",
+  modelSelector = process.env.HOMERAIL_PR_REVIEW_MODEL,
   primarySelector = process.env.HOMERAIL_PR_REVIEW_PRIMARY_MODEL,
   arbiterSelector = process.env.HOMERAIL_PR_REVIEW_ARBITER_MODEL,
   thirdSelector = process.env.HOMERAIL_PR_REVIEW_THIRD_MODEL,
 } = {}) {
   const normalizedManagerUrl = managerUrl.replace(/\/+$/, "");
+  profileId = nonEmpty(profileId) ?? "pr-review-mixed";
+  workflowId = nonEmpty(workflowId) ?? "pr-review";
+  agentType = normalizedAgentType(agentType);
+  modelSelector = nonEmpty(modelSelector);
   const listed = await request(normalizedManagerUrl, "/api/llm/settings");
   const settings = Array.isArray(listed?.settings) ? listed.settings : [];
-  const primary = selectRuntimeSetting(settings, primarySelector, "primary");
-  const arbiter = selectRuntimeSetting(settings, arbiterSelector, "arbiter");
-  const third = selectRuntimeSetting(settings, thirdSelector, "third");
-  const yamlText = prReviewRuntimeProfileYaml({ profileId, workflowId, primary, arbiter, third });
+  const primary = selectRuntimeSetting(settings, modelSelector ?? primarySelector, "primary", agentType);
+  const arbiter = selectRuntimeSetting(settings, modelSelector ?? arbiterSelector, "arbiter", agentType);
+  const third = selectRuntimeSetting(settings, modelSelector ?? thirdSelector, "third", agentType);
+  const yamlText = prReviewRuntimeProfileYaml({ profileId, workflowId, primary, arbiter, third, agentType });
   const synced = await request(normalizedManagerUrl, "/api/dag/profiles/sync", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

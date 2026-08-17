@@ -25,6 +25,7 @@ import {
   type ReviewFailureCategory,
 } from "homerail-protocol";
 import { createAgentClient } from "./agent/factory.js";
+import { supportsDeepSeekHarnessReadTools } from "./agent/deepseek-harness-read-tools.js";
 import type {
   AgentEvent,
   AgentRunContext,
@@ -169,6 +170,18 @@ function assertBuiltinToolPolicySupported(
   }
   if (allowedTools === undefined) return;
   if (backend === "claude-sdk" || backend === "deterministic") return;
+  if (backend === "deepseek_harness") {
+    if (!Array.isArray(allowedTools) || !allowedTools.every((tool) => typeof tool === "string")) {
+      throw new Error("DeepSeek Harness allowed_builtin_tools must be an array");
+    }
+    if (!supportsDeepSeekHarnessReadTools(allowedTools)) {
+      throw new Error("DeepSeek Harness only enforces the read-only built-in tools Read, Grep, Glob, and LS");
+    }
+    if (allowedTools.length > 0 && (!workspaceAccess || typeof workspaceAccess !== "object" || Array.isArray(workspaceAccess))) {
+      throw new Error("DeepSeek Harness read-only built-in tools require workspace_access");
+    }
+    return;
+  }
   throw new Error(
     `allowed_builtin_tools is not enforced by agent backend '${backend ?? "unknown"}'`,
   );

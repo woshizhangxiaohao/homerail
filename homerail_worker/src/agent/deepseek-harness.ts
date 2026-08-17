@@ -28,6 +28,7 @@ import type {
   DagToolDefinition,
 } from "./types.js";
 import type { AgentTurnDriverBindingResult } from "./turn-controller.js";
+import { createDeepSeekHarnessReadTools } from "./deepseek-harness-read-tools.js";
 import { WORKER_RUNTIME_VERSION } from "../runtime-version.js";
 
 const DEFAULT_DSH_RUNTIME_COMMAND = "dsh-jsonrpc-agent-pkg";
@@ -311,7 +312,23 @@ export class DeepSeekHarnessAdapter implements AgentClient {
     const queue = new AsyncQueue<AgentEvent>();
 
     try {
-      bridge = await createToolBridge(tools, runtimeRoot);
+      const builtinTools = context.handoffOnly || !context.allowedBuiltinTools?.length
+        ? []
+        : createDeepSeekHarnessReadTools({
+            workspace: context.workspace ?? process.cwd(),
+            workspaceAccess: context.workspaceAccess!,
+            allowedTools: context.allowedBuiltinTools,
+            maxCalls: context.maxBuiltinToolCalls,
+          });
+      const names = new Set<string>();
+      const bridgeTools = [...builtinTools, ...tools].filter((tool) => {
+        if (names.has(tool.name)) {
+          throw new Error(`DeepSeek Harness tool name collision: ${tool.name}`);
+        }
+        names.add(tool.name);
+        return true;
+      });
+      bridge = await createToolBridge(bridgeTools, runtimeRoot);
       const childEnv = {
         ...sanitizedAgentChildEnv({
           ...process.env,
@@ -349,7 +366,8 @@ export class DeepSeekHarnessAdapter implements AgentClient {
           runtime_command: this.runtimeCommand,
           runtime_args_count: this.runtimeArgs.length,
           session_id: sessionId,
-          tool_count: tools.length,
+          tool_count: bridgeTools.length,
+          builtin_tools: builtinTools.map((tool) => tool.name),
           workspace: context.workspace ?? process.cwd(),
           process_isolation: true,
           resume_supported: false,

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -109,6 +109,32 @@ describe("DeepSeekHarnessAdapter", () => {
     const events = await eventsPromise;
     expect(events.at(-1)?.type).toBe("done");
     await controller.close({ outcome: "completed" });
+  });
+
+  it("projects only the explicitly allowed HomeRail-managed read tools into DSH MCP", async () => {
+    const workspace = tempRoot();
+    mkdirSync(join(workspace, "repository"));
+    writeFileSync(join(workspace, "repository", "README.md"), "fixture\n");
+    const adapter = new DeepSeekHarnessAdapter({
+      runtimeCommand: process.execPath,
+      runtimeArgs: [fakeRuntime],
+    });
+    const events = await collect(adapter, context({
+      workspace,
+      allowedBuiltinTools: ["Read", "Grep", "Glob", "LS"],
+      workspaceAccess: { writable_paths: [], readonly_paths: ["repository"] },
+      maxBuiltinToolCalls: 12,
+    }));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "debug",
+      source: "deepseek-harness",
+      message: "runtime_prepared",
+      data: expect.objectContaining({
+        tool_count: 4,
+        builtin_tools: ["Read", "Grep", "Glob", "LS"],
+      }),
+    }));
   });
 
   it("uses cooperative session cancellation for an active DSH turn", async () => {

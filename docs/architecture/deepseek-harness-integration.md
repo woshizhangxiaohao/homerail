@@ -17,8 +17,10 @@ barrier that prevents a first prompt from racing asynchronous MCP discovery.
 1. starts a dedicated DSH JSON-RPC child process through the published
    `@deepseek-ai/dsh-sdk-client` transport;
 2. starts a loopback-only HTTP bridge protected by a random bearer token;
-3. exposes only that turn's HomeRail DAG tools through a temporary stdio MCP
-   proxy, under DSH names such as `mcp__homerail__handoff`;
+3. exposes that turn's HomeRail DAG tools and, when the DAG explicitly requests
+   them, HomeRail-managed `Read`, `Grep`, `Glob`, and `LS` implementations
+   through a temporary stdio MCP proxy, under DSH names such as
+   `mcp__homerail__handoff`;
 4. maps DSH text, reasoning, tool, usage, and turn events back to HomeRail; and
 5. closes the child, bridge, temporary proxy, and session directory when the
    turn ends.
@@ -26,9 +28,12 @@ barrier that prevents a first prompt from racing asynchronous MCP discovery.
 The child receives the same sanitized environment used by other agent
 backends. Manager/Worker control-plane tokens are removed, the external model
 credential is supplied only to DSH, and bridge credentials are scoped to the
-turn. The DSH composition mounts no shell, filesystem, Skill, runtime-context,
-or job tools. Claude, Codex, and Kimi adapters keep their existing registry
-entries and code paths.
+turn. The DSH composition itself mounts no shell, filesystem, Skill,
+runtime-context, or job tools. Read-only filesystem calls are implemented by
+the Worker bridge, confined to the DAG's declared `workspace_access` roots,
+bounded for input/output size and call count, and protected against traversal
+and symlink escapes. Claude, Codex, and Kimi adapters keep their existing
+registry entries and code paths.
 
 ## Runtime packaging and source checkout setup
 
@@ -89,9 +94,10 @@ interrupts do not require Claude-specific protocol emulation.
 - The standard UI and onboarding flow do not yet offer DSH as a polished
   selection; the protocol, runtime resolver, CLI doctor, and Worker backend are
   present for manual/WIP use.
-- HomeRail rejects exact `allowed_builtin_tools` assertions for DSH. The WIP
-  composition instead disables all DSH built-ins and exposes only HomeRail MCP
-  tools.
+- DSH accepts exact `allowed_builtin_tools` only for `Read`, `Grep`, `Glob`, and
+  `LS`. Shell and mutation tools remain unsupported and fail closed. These
+  four names are HomeRail-managed MCP implementations, not DSH-native
+  filesystem plugins.
 - DSH is not yet a complete Claude Code replacement in HomeRail: persistent
   sessions, full Manager Agent product integration, image-size optimization,
   and longer live reliability runs remain follow-up work.
@@ -99,7 +105,8 @@ interrupts do not require Claude-specific protocol emulation.
 ## Validation
 
 The adapter unit tests cover event mapping, sanitized child environments,
-live steering, and cooperative cancellation. A keyless integration smoke uses
+workspace-confined read/search tools, tool budgets, live steering, and
+cooperative cancellation. A keyless integration smoke uses
 the actual fork runtime and MCP client with a local OpenAI-compatible SSE
 server. It verifies that the first model request contains
 `mcp__homerail__handoff`, DSH invokes the HomeRail handler with structured

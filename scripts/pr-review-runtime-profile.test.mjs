@@ -77,6 +77,37 @@ test("binds the three review votes to three distinct models", () => {
   );
 });
 
+test("binds three independent DSH reviewers to one OpenAI-compatible Qwen setting", () => {
+  const qwenLocal = {
+    id: "setting-qwen38-local",
+    display_name: "Qwen3.8 27B Local · DSH",
+    model_name: "qwen3.8",
+    protocol: "openai_compatible",
+    base_url: "http://192.168.100.10:5000/v1",
+    chat_completions_base_url: "http://192.168.100.10:5000/v1",
+    is_active: true,
+    supports_llm: true,
+  };
+  assert.equal(
+    selectRuntimeSetting([qwenLocal], qwenLocal.display_name, "primary", "deepseek_harness"),
+    qwenLocal,
+  );
+  const yaml = prReviewRuntimeProfileYaml({
+    profileId: "pr-review-qwen38-dsh",
+    primary: qwenLocal,
+    arbiter: qwenLocal,
+    third: qwenLocal,
+    agentType: "deepseek_harness",
+  });
+  assert.match(yaml, /description: Three independent DeepSeek Harness reviewer processes/);
+  assert.equal((yaml.match(/llm_setting_id: "setting-qwen38-local"/g) ?? []).length, 4);
+  assert.equal((yaml.match(/agent_type: deepseek_harness/g) ?? []).length, 4);
+  assert.throws(
+    () => selectRuntimeSetting([{ ...qwenLocal, protocol: "anthropic_compatible" }], qwenLocal.id, "primary", "deepseek_harness"),
+    /not OpenAI-compatible/,
+  );
+});
+
 test("authenticates profile sync with the isolated DAG mutation token", async () => {
   const previousToken = process.env.HOMERAIL_DAG_MUTATION_TOKEN;
   const previousAdminToken = process.env.HOMERAIL_MANAGER_ADMIN_TOKEN;

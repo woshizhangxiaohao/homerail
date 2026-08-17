@@ -23,6 +23,22 @@ on:
         description: Optional immutable head commit SHA
         type: string
         required: false
+      profile_id:
+        description: Optional private runtime profile id for this review
+        type: string
+        required: false
+      model:
+        description: Optional single Manager LLM setting selector for all three independent reviewers
+        type: string
+        required: false
+      agent_type:
+        description: Harness used by all three independent reviewers
+        type: choice
+        options:
+          - claude-sdk
+          - deepseek_harness
+        default: claude-sdk
+        required: false
 
 permissions:
   contents: read
@@ -147,6 +163,9 @@ jobs:
         id: review
         env:
           HOMERAIL_PR_REVIEW_INPUT: ${{ steps.input.outputs.json }}
+          HOMERAIL_PR_REVIEW_PROFILE_ID: ${{ inputs.profile_id }}
+          HOMERAIL_PR_REVIEW_MODEL: ${{ inputs.model }}
+          HOMERAIL_PR_REVIEW_AGENT_TYPE: ${{ inputs.agent_type }}
         run: bash "${{ steps.adapter.outputs.path }}"
 
       - name: Publish Check summary
