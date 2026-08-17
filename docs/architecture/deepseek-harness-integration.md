@@ -1,7 +1,7 @@
 # DeepSeek Harness integration (WIP)
 
 Status: experimental Draft integration, validated against fork commit
-`559cd23cc2f1b96da2fde230064da2dc3781b126` on 2026-08-17.
+`ec75587a05bf0cc3f29dd0d5f875d3235f7deae6` on 2026-08-17.
 
 HomeRail uses the owner-maintained
 [`xiaotianfotos/deepseek-harness`](https://github.com/xiaotianfotos/deepseek-harness)
@@ -29,6 +29,12 @@ Each DSH conversation-model request is capped at 32,768 output tokens by
 default, leaving room in large context windows for the prompt and accumulated
 tool transcript. Operators can set `HOMERAIL_DSH_MAX_TOKENS` to another
 positive integer when a model requires a tighter limit.
+
+The HomeRail Cordis composition selects reasoning effort `xhigh`. The pinned
+fork's native chat-completions adapter passes `low`, `medium`, `high`, `xhigh`,
+and `max` through unchanged, while preserving DSH's `high` default when a
+composition does not choose an effort. This lets the local Qwen endpoint use
+its declared vocabulary without changing the official DeepSeek default.
 
 The child receives the same sanitized environment used by other agent
 backends. Manager/Worker control-plane tokens are removed, the external model

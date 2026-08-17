@@ -41,6 +41,15 @@ async function collect(adapter: DeepSeekHarnessAdapter, runContext: AgentRunCont
 }
 
 describe("DeepSeekHarnessAdapter", () => {
+  it("pins the compatible fork revision and selects the local model effort vocabulary", () => {
+    const dockerfile = readFileSync(new URL("../../Dockerfile", import.meta.url), "utf8");
+    const composition = readFileSync(new URL("../../dsh/homerail.cordis.yml", import.meta.url), "utf8");
+    const dockerCommit = /^ARG HOMERAIL_DSH_FORK_COMMIT=([a-f0-9]{40})$/m.exec(dockerfile)?.[1];
+
+    expect(dockerCommit).toBe(_deepSeekHarnessForkCommitForTest);
+    expect(composition).toMatch(/^\s{4}reasoningEffort: xhigh$/m);
+  });
+
   it("maps DSH streaming, tool, usage, and completion events without leaking the Manager token", async () => {
     const root = tempRoot();
     const recordFile = join(root, "runtime.jsonl");
