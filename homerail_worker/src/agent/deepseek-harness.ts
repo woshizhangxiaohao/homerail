@@ -174,6 +174,18 @@ function finishReason(value: unknown): string | null {
   return isRecord(value) && typeof value.kind === "string" ? value.kind : null;
 }
 
+function turnEndError(value: unknown): AgentEvent | null {
+  if (!isRecord(value) || value.kind !== "error") return null;
+  const failure = isRecord(value.error) ? value.error : undefined;
+  const code = typeof failure?.code === "string" ? failure.code : "UNKNOWN";
+  const message = typeof failure?.message === "string" ? failure.message : "Unknown DSH turn failure";
+  const status = typeof failure?.status === "number" ? ` (HTTP ${failure.status})` : "";
+  return {
+    type: "error",
+    message: `DeepSeek Harness turn failed [${code}]${status}: ${message}`,
+  };
+}
+
 function notificationEvents(
   notification: HarnessNotification,
   aggregateUsage: AgentUsage,
@@ -237,12 +249,16 @@ function notificationEvents(
         finish: null,
       };
     }
-    case "turn/end":
+    case "turn/end": {
+      const error = turnEndError(event.data.reason);
       return {
-        events: [{ type: "turn_complete" }],
+        events: [...(error ? [error] : []), { type: "turn_complete" }],
         usage: aggregateUsage,
-        finish: typeof event.data.reason === "string" ? event.data.reason : null,
+        finish: typeof event.data.reason === "string"
+          ? event.data.reason
+          : finishReason(event.data.reason),
       };
+    }
     default:
       return { events: [], usage: aggregateUsage, finish: null };
   }

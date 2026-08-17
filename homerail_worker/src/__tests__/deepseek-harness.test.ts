@@ -137,6 +137,22 @@ describe("DeepSeekHarnessAdapter", () => {
     }));
   });
 
+  it("surfaces structured DSH turn failures as actionable agent errors", async () => {
+    const adapter = new DeepSeekHarnessAdapter({
+      runtimeCommand: process.execPath,
+      runtimeArgs: [fakeRuntime],
+    });
+    const events = await collect(adapter, context({
+      environmentVariables: { DSH_FAKE_TURN_ERROR: "provider connection refused" },
+    }));
+
+    expect(events).toContainEqual({
+      type: "error",
+      message: "DeepSeek Harness turn failed [UPSTREAM_REJECTED] (HTTP 502): provider connection refused",
+    });
+    expect(events.at(-1)).toMatchObject({ type: "done", finish_reason: "error" });
+  });
+
   it("uses cooperative session cancellation for an active DSH turn", async () => {
     const root = tempRoot();
     const readyFile = join(root, "ready");

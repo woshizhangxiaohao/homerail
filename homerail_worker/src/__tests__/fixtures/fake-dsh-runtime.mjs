@@ -108,7 +108,18 @@ lines.on("line", (line) => {
     });
     status(activeSession, "running");
     if (process.env.DSH_FAKE_READY_FILE) appendFileSync(process.env.DSH_FAKE_READY_FILE, "ready\n");
-    if (!process.env.DSH_FAKE_WAIT_FOR) finish();
+    if (!process.env.DSH_FAKE_WAIT_FOR) {
+      finish(process.env.DSH_FAKE_TURN_ERROR
+        ? {
+            kind: "error",
+            error: {
+              code: "UPSTREAM_REJECTED",
+              message: process.env.DSH_FAKE_TURN_ERROR,
+              status: 502,
+            },
+          }
+        : "completed");
+    }
     return;
   }
   if (request.method === "session/steer") {
