@@ -30,6 +30,16 @@ function normalizedAgentType(value) {
   return agentType;
 }
 
+export function resolvePrReviewProfileId(value, agentType) {
+  agentType = normalizedAgentType(agentType);
+  const profileId = nonEmpty(value)
+    ?? (agentType === "deepseek_harness" ? "pr-review-dsh" : "pr-review-mixed");
+  if (agentType === "deepseek_harness" && profileId === "pr-review-mixed") {
+    throw new Error("DeepSeek Harness PR Review must not overwrite the pr-review-mixed profile");
+  }
+  return profileId;
+}
+
 function normalizedDshReasoningEffort(value, agentType) {
   if (agentType !== "deepseek_harness") return undefined;
   const effort = nonEmpty(value) ?? "medium";
@@ -128,7 +138,7 @@ async function request(managerUrl, pathname, init) {
 
 export async function configurePrReviewRuntimeProfile({
   managerUrl = process.env.HOMERAIL_MANAGER_URL ?? "http://127.0.0.1:29191",
-  profileId = process.env.HOMERAIL_PR_REVIEW_PROFILE_ID ?? "pr-review-mixed",
+  profileId = process.env.HOMERAIL_PR_REVIEW_PROFILE_ID,
   workflowId = process.env.HOMERAIL_PR_REVIEW_WORKFLOW_ID ?? "pr-review",
   agentType = process.env.HOMERAIL_PR_REVIEW_AGENT_TYPE ?? "claude-sdk",
   modelSelector = process.env.HOMERAIL_PR_REVIEW_MODEL,
@@ -138,9 +148,9 @@ export async function configurePrReviewRuntimeProfile({
   reasoningEffort = process.env.HOMERAIL_PR_REVIEW_REASONING_EFFORT,
 } = {}) {
   const normalizedManagerUrl = managerUrl.replace(/\/+$/, "");
-  profileId = nonEmpty(profileId) ?? "pr-review-mixed";
   workflowId = nonEmpty(workflowId) ?? "pr-review";
   agentType = normalizedAgentType(agentType);
+  profileId = resolvePrReviewProfileId(profileId, agentType);
   modelSelector = nonEmpty(modelSelector);
   const listed = await request(normalizedManagerUrl, "/api/llm/settings");
   const settings = Array.isArray(listed?.settings) ? listed.settings : [];

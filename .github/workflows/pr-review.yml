@@ -163,7 +163,9 @@ jobs:
         id: review
         env:
           HOMERAIL_PR_REVIEW_INPUT: ${{ steps.input.outputs.json }}
-          HOMERAIL_PR_REVIEW_PROFILE_ID: ${{ inputs.profile_id || 'pr-review-mixed' }}
+          # Keep DSH isolated even while the stable adapter is still running
+          # a release that predates agent-type-specific profile derivation.
+          HOMERAIL_PR_REVIEW_PROFILE_ID: ${{ inputs.profile_id || (inputs.agent_type == 'deepseek_harness' && 'pr-review-dsh' || 'pr-review-mixed') }}
           HOMERAIL_PR_REVIEW_MODEL: ${{ inputs.model }}
           HOMERAIL_PR_REVIEW_AGENT_TYPE: ${{ inputs.agent_type || 'claude-sdk' }}
         run: bash "${{ steps.adapter.outputs.path }}"

@@ -43,8 +43,11 @@ turn. The DSH composition itself mounts no shell, filesystem, Skill,
 runtime-context, or job tools. Read-only filesystem calls are implemented by
 the Worker bridge, confined to the DAG's declared `workspace_access` roots,
 bounded for input/output size, optionally bounded by an explicit workflow call
-limit, and protected against traversal and symlink escapes. Claude, Codex, and
-Kimi adapters keep their existing registry entries and code paths.
+limit, and protected against traversal and symlink escapes. Glob matching uses
+a non-regex bounded matcher; model-supplied Grep regular expressions execute in
+a disposable Worker thread with a two-second timeout so they cannot block the
+HomeRail Worker event loop. Claude, Codex, and Kimi adapters keep their existing
+registry entries and code paths.
 
 ## Runtime packaging and source checkout setup
 

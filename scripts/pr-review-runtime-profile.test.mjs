@@ -9,6 +9,7 @@ import {
   PR_REVIEW_MODEL_AGENTS,
   configurePrReviewRuntimeProfile,
   prReviewRuntimeProfileYaml,
+  resolvePrReviewProfileId,
   selectRuntimeSetting,
 } from "./configure-pr-review-runtime-profile.mjs";
 
@@ -131,6 +132,16 @@ test("binds three independent DSH reviewers to one OpenAI-compatible Qwen settin
   );
 });
 
+test("keeps omitted DSH profile ids isolated from the mixed-model profile", () => {
+  assert.equal(resolvePrReviewProfileId(undefined, "claude-sdk"), "pr-review-mixed");
+  assert.equal(resolvePrReviewProfileId(undefined, "deepseek_harness"), "pr-review-dsh");
+  assert.equal(resolvePrReviewProfileId("pr-review-qwen38-dsh", "deepseek_harness"), "pr-review-qwen38-dsh");
+  assert.throws(
+    () => resolvePrReviewProfileId("pr-review-mixed", "deepseek_harness"),
+    /must not overwrite the pr-review-mixed profile/,
+  );
+});
+
 test("authenticates profile sync with the isolated DAG mutation token", async () => {
   const previousToken = process.env.HOMERAIL_DAG_MUTATION_TOKEN;
   const previousAdminToken = process.env.HOMERAIL_MANAGER_ADMIN_TOKEN;
@@ -187,8 +198,9 @@ test("formal PR Review submits to the durable stable Manager", () => {
   assert.match(workflow, /homerail-pr-review/);
   assert.match(
     workflow,
-    /HOMERAIL_PR_REVIEW_PROFILE_ID: \$\{\{ inputs\.profile_id \|\| 'pr-review-mixed' \}\}/,
+    /HOMERAIL_PR_REVIEW_PROFILE_ID: \$\{\{ inputs\.profile_id \|\| \(inputs\.agent_type == 'deepseek_harness' && 'pr-review-dsh' \|\| 'pr-review-mixed'\) \}\}/,
   );
+  assert.doesNotMatch(workflow, /inputs\.profile_id \|\| 'pr-review-mixed'/);
   assert.match(
     workflow,
     /HOMERAIL_PR_REVIEW_AGENT_TYPE: \$\{\{ inputs\.agent_type \|\| 'claude-sdk' \}\}/,

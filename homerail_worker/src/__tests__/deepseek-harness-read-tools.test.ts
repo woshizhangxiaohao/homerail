@@ -21,12 +21,13 @@ function fixture() {
   return workspace;
 }
 
-function tools(workspace: string, maxCalls?: number) {
+function tools(workspace: string, maxCalls?: number, grepTimeoutMs?: number) {
   return new Map(createDeepSeekHarnessReadTools({
     workspace,
     workspaceAccess: { writable_paths: [], readonly_paths: ["repository"] },
     allowedTools: ["Read", "Grep", "Glob", "LS"],
     maxCalls,
+    grepTimeoutMs,
   }).map((tool) => [tool.name, tool]));
 }
 
@@ -74,6 +75,54 @@ describe("DeepSeek Harness HomeRail-managed read tools", () => {
         is_error: true,
         content: [{ text: expect.stringContaining("Built-in tool budget exhausted (1/1)") }],
       });
+  });
+
+  it("allows a declared root to be created after tool initialization and still resolves it safely", async () => {
+    const workspace = fixture();
+    const available = new Map(createDeepSeekHarnessReadTools({
+      workspace,
+      workspaceAccess: { writable_paths: ["generated"], readonly_paths: ["future-link"] },
+      allowedTools: ["Read", "LS"],
+    }).map((tool) => [tool.name, tool]));
+
+    await expect(available.get("LS")!.handler({ path: "generated" }))
+      .resolves.toMatchObject({ is_error: true });
+    mkdirSync(join(workspace, "generated"));
+    writeFileSync(join(workspace, "generated", "result.txt"), "ready\n");
+    await expect(available.get("Read")!.handler({ file_path: "generated/result.txt" }))
+      .resolves.toMatchObject({ content: [{ text: expect.stringContaining("ready") }] });
+
+    const escapedRoot = mkdtempSync(join(tmpdir(), "homerail-dsh-read-tools-outside-"));
+    roots.push(escapedRoot);
+    writeFileSync(join(escapedRoot, "secret.txt"), "do not read\n");
+    symlinkSync(escapedRoot, join(workspace, "future-link"), "dir");
+    await expect(available.get("LS")!.handler({ path: "future-link" }))
+      .resolves.toMatchObject({
+        is_error: true,
+        content: [{ text: expect.stringContaining("outside the declared workspace roots") }],
+      });
+  });
+
+  it("bounds model-controlled regular expressions outside the Worker event loop", async () => {
+    const workspace = fixture();
+    writeFileSync(join(workspace, "repository", "pathological.txt"), `${"a".repeat(100_000)}X\n`);
+    const available = tools(workspace, undefined, 100);
+
+    await expect(available.get("Grep")!.handler({ pattern: "[", path: "repository" }))
+      .resolves.toMatchObject({
+        is_error: true,
+        content: [{ text: expect.stringContaining("invalid Grep regular expression") }],
+      });
+
+    const startedAt = Date.now();
+    await expect(available.get("Grep")!.handler({
+      pattern: "^(a+)+$",
+      path: "repository/pathological.txt",
+    })).resolves.toMatchObject({
+      is_error: true,
+      content: [{ text: expect.stringContaining("Grep search timed out after 100ms") }],
+    });
+    expect(Date.now() - startedAt).toBeLessThan(2_000);
   });
 
   it("refuses mutating or shell built-ins", () => {
