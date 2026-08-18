@@ -856,7 +856,8 @@ export class DagEnvironmentController {
         ...initialBuild.logs,
         `Worker build network: apt_main=${networkSummary.apt_main}`
           + ` apt_security=${networkSummary.apt_security}`
-          + ` npm=${networkSummary.npm} proxy=${networkSummary.proxy}`,
+          + ` npm=${networkSummary.npm} dsh_git=${networkSummary.dsh_git}`
+          + ` proxy=${networkSummary.proxy}`,
         "Checking Docker before build…",
       ],
     };

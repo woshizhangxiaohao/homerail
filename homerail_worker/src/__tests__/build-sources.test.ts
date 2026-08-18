@@ -716,6 +716,21 @@ describe("Worker Dockerfile source wiring", () => {
     expect(dockerfile).not.toMatch(/ENV[^\n]*NPM_CONFIG_REGISTRY/);
     expect(dockerfile).not.toMatch(/ENV[^\n]*HOMERAIL_WORKER_BUILD_APT/);
   });
+
+  it("allows the pinned DSH fork and Corepack bootstrap to use validated mirrors", () => {
+    expect(dockerfile).toContain(
+      "ARG HOMERAIL_DSH_FORK_REPOSITORY=https://github.com/xiaotianfotos/deepseek-harness.git",
+    );
+    expect(dockerfile).toContain('git remote add origin "${HOMERAIL_DSH_FORK_REPOSITORY}"');
+    const dshStage = dockerfileStages().find((stage) => stage.header.includes(" AS dsh-runtime-build"));
+    expect(dshStage).toBeDefined();
+    const corepackRuns = runInstructions(dshStage?.lines ?? [])
+      .filter((instruction) => instruction.text.includes("corepack pnpm"));
+    expect(corepackRuns.length).toBeGreaterThan(0);
+    for (const instruction of corepackRuns) {
+      expect(instruction.text).toContain('export COREPACK_NPM_REGISTRY="$NPM_CONFIG_REGISTRY"');
+    }
+  });
 });
 
 describe("Worker source fingerprint participation", () => {

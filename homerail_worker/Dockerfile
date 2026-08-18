@@ -24,6 +24,7 @@ FROM node:22-slim AS dsh-runtime-build
 ARG HOMERAIL_WORKER_BUILD_APT_MIRROR
 ARG HOMERAIL_WORKER_BUILD_APT_SECURITY_MIRROR
 ARG NPM_CONFIG_REGISTRY
+ARG HOMERAIL_DSH_FORK_REPOSITORY=https://github.com/xiaotianfotos/deepseek-harness.git
 ARG HOMERAIL_DSH_FORK_COMMIT=ec75587a05bf0cc3f29dd0d5f875d3235f7deae6
 COPY homerail_worker/scripts/configure-apt-sources.mjs /opt/homerail/scripts/configure-apt-sources.mjs
 RUN node /opt/homerail/scripts/configure-apt-sources.mjs
@@ -33,14 +34,15 @@ RUN apt-get update \
 RUN npm install --global corepack@0.34.0 && corepack enable
 RUN git init /src/deepseek-harness \
   && cd /src/deepseek-harness \
-  && git remote add origin https://github.com/xiaotianfotos/deepseek-harness.git \
+  && git remote add origin "${HOMERAIL_DSH_FORK_REPOSITORY}" \
   && git fetch --depth=1 origin "${HOMERAIL_DSH_FORK_COMMIT}" \
   && git checkout --detach FETCH_HEAD \
   && test "$(git rev-parse HEAD)" = "${HOMERAIL_DSH_FORK_COMMIT}"
 WORKDIR /src/deepseek-harness
-RUN corepack pnpm install --frozen-lockfile
-RUN corepack pnpm run build:lib:host
-RUN corepack pnpm exec tsx scripts/build-exe-for-python-sdk.ts --skip-build --node-only
+RUN if [ -n "${NPM_CONFIG_REGISTRY:-}" ]; then export COREPACK_NPM_REGISTRY="$NPM_CONFIG_REGISTRY"; fi \
+  && corepack pnpm install --frozen-lockfile \
+  && corepack pnpm run build:lib:host \
+  && corepack pnpm exec tsx scripts/build-exe-for-python-sdk.ts --skip-build --node-only
 
 FROM node:22-slim
 
