@@ -163,9 +163,9 @@ jobs:
         id: review
         env:
           HOMERAIL_PR_REVIEW_INPUT: ${{ steps.input.outputs.json }}
-          HOMERAIL_PR_REVIEW_PROFILE_ID: ${{ inputs.profile_id }}
+          HOMERAIL_PR_REVIEW_PROFILE_ID: ${{ inputs.profile_id || 'pr-review-mixed' }}
           HOMERAIL_PR_REVIEW_MODEL: ${{ inputs.model }}
-          HOMERAIL_PR_REVIEW_AGENT_TYPE: ${{ inputs.agent_type }}
+          HOMERAIL_PR_REVIEW_AGENT_TYPE: ${{ inputs.agent_type || 'claude-sdk' }}
         run: bash "${{ steps.adapter.outputs.path }}"
 
       - name: Publish Check summary

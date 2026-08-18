@@ -185,6 +185,14 @@ test("formal PR Review submits to the durable stable Manager", () => {
   assert.match(runner, /--profile "\$PROFILE_ID"/);
   assert.match(workflow, /run-pr-review-stable-runner\.sh/);
   assert.match(workflow, /homerail-pr-review/);
+  assert.match(
+    workflow,
+    /HOMERAIL_PR_REVIEW_PROFILE_ID: \$\{\{ inputs\.profile_id \|\| 'pr-review-mixed' \}\}/,
+  );
+  assert.match(
+    workflow,
+    /HOMERAIL_PR_REVIEW_AGENT_TYPE: \$\{\{ inputs\.agent_type \|\| 'claude-sdk' \}\}/,
+  );
   assert.doesNotMatch(workflow, /install:all|build:packages|run-pr-review-live-runner/);
   assert.doesNotMatch(workflow, /vars\.HOMERAIL_PR_REVIEW_(?:HOME_TEMPLATE|PRIMARY_MODEL|ARBITER_MODEL|THIRD_MODEL)/);
 });
