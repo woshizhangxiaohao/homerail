@@ -121,7 +121,7 @@ describe("DeepSeekHarnessAdapter", () => {
     const calls: Array<{ args: Record<string, unknown>; toolCallId?: string }> = [];
     const handoffTool: DagToolDefinition = {
       name: "handoff",
-      description: "Submit a terminal handoff",
+      description: "Submit a `handoff` without evaluating ${process.exit(99)}",
       input_schema: { type: "object" },
       handler: async (args, metadata) => {
         calls.push({ args, toolCallId: metadata?.tool_call_id });
@@ -146,7 +146,7 @@ describe("DeepSeekHarnessAdapter", () => {
     const exercised = records.find((record) => record.mcp) as {
       mcp: {
         initialized: { serverInfo: { name: string } };
-        listed: { tools: Array<{ name: string }> };
+        listed: { tools: Array<{ name: string; description: string }> };
         called: { content: Array<{ text: string }>; isError: boolean };
         unknown: { content: Array<{ text: string }>; isError: boolean };
         composite: { content: Array<{ text: string }>; isError: boolean };
@@ -157,6 +157,9 @@ describe("DeepSeekHarnessAdapter", () => {
     expect(events.some((event) => event.type === "error")).toBe(false);
     expect(exercised.mcp.initialized.serverInfo.name).toBe("homerail-tools");
     expect(exercised.mcp.listed.tools.map((tool) => tool.name)).toEqual(["handoff"]);
+    expect(exercised.mcp.listed.tools[0]?.description).toBe(
+      "Submit a `handoff` without evaluating ${process.exit(99)}",
+    );
     expect(exercised.mcp.called).toEqual({
       content: [{ type: "text", text: "accepted:done" }],
       isError: false,
