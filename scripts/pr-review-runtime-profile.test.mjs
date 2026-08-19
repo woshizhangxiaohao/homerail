@@ -128,6 +128,17 @@ test("binds three independent DSH reviewers to one OpenAI-compatible Qwen settin
     /does not declare reasoning effort: ultra/,
   );
   assert.throws(
+    () => prReviewRuntimeProfileYaml({
+      profileId: "pr-review-qwen38-dsh-inherited-selector",
+      primary: qwenLocal,
+      arbiter: qwenLocal,
+      third: qwenLocal,
+      agentType: "deepseek_harness",
+      reasoningEffort: "toString",
+    }),
+    /does not declare reasoning effort: toString/,
+  );
+  assert.throws(
     () => selectRuntimeSetting([{ ...qwenLocal, protocol: "anthropic_compatible" }], qwenLocal.id, "primary", "deepseek_harness"),
     /not OpenAI-compatible/,
   );

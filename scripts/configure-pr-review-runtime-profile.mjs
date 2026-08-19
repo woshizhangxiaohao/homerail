@@ -44,7 +44,11 @@ function normalizedDshReasoningEffort(value, agentType, settings) {
   if (!effort) return undefined;
   for (const setting of new Set(settings)) {
     const effortMap = setting?.reasoning_effort_map;
-    if (!effortMap || typeof effortMap !== "object" || !(effort in effortMap)) {
+    if (
+      !effortMap
+      || typeof effortMap !== "object"
+      || !Object.prototype.hasOwnProperty.call(effortMap, effort)
+    ) {
       throw new Error(
         `DeepSeek Harness model setting ${setting?.id ?? "unknown"} does not declare reasoning effort: ${effort}`,
       );
