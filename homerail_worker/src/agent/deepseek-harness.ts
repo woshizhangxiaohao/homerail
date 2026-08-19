@@ -680,13 +680,19 @@ function closeHttpServer(server: Server): Promise<void> {
 
 function readJson(request: IncomingMessage, maxBytes = 1_000_000): Promise<Record<string, unknown>> {
   return new Promise((resolveBody, rejectBody) => {
-    let body = "";
+    const chunks: Buffer[] = [];
+    let bodyBytes = 0;
     request.on("data", (chunk: Buffer) => {
-      body += chunk.toString("utf8");
-      if (body.length > maxBytes) request.destroy(new Error("request body too large"));
+      bodyBytes += chunk.length;
+      if (bodyBytes > maxBytes) {
+        request.destroy(new Error("request body too large"));
+        return;
+      }
+      chunks.push(chunk);
     });
     request.on("end", () => {
       try {
+        const body = Buffer.concat(chunks, bodyBytes).toString("utf8");
         const parsed: unknown = JSON.parse(body || "{}");
         if (!isRecord(parsed)) throw new Error("request body must be an object");
         resolveBody(parsed);
@@ -697,6 +703,8 @@ function readJson(request: IncomingMessage, maxBytes = 1_000_000): Promise<Recor
     request.on("error", rejectBody);
   });
 }
+
+export const _readDeepSeekHarnessToolJsonForTest = readJson;
 
 function writeJson(response: ServerResponse, status: number, body: Record<string, unknown>): void {
   response.statusCode = status;

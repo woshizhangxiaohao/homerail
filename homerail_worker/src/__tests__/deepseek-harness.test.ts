@@ -1,10 +1,15 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
-import { DeepSeekHarnessAdapter, _deepSeekHarnessForkCommitForTest } from "../agent/deepseek-harness.js";
+import {
+  DeepSeekHarnessAdapter,
+  _deepSeekHarnessForkCommitForTest,
+  _readDeepSeekHarnessToolJsonForTest,
+} from "../agent/deepseek-harness.js";
 import { AgentTurnController } from "../agent/turn-controller.js";
 import type { AgentEvent, AgentRunContext, DagToolDefinition } from "../agent/types.js";
 
@@ -172,6 +177,34 @@ describe("DeepSeekHarnessAdapter", () => {
       args: { port: "done", content: { ok: true } },
       toolCallId: "3",
     }]);
+  });
+
+  it("preserves split UTF-8 tool arguments and enforces the bridge limit in bytes", async () => {
+    const body = Buffer.from(JSON.stringify({
+      name: "handoff",
+      args: { content: "中文证据" },
+    }));
+    const multibyteStart = body.indexOf(Buffer.from("中"));
+    expect(multibyteStart).toBeGreaterThan(0);
+
+    const request = new PassThrough();
+    const parsed = _readDeepSeekHarnessToolJsonForTest(
+      request as unknown as Parameters<typeof _readDeepSeekHarnessToolJsonForTest>[0],
+    );
+    request.write(body.subarray(0, multibyteStart + 1));
+    request.end(body.subarray(multibyteStart + 1));
+    await expect(parsed).resolves.toEqual({
+      name: "handoff",
+      args: { content: "中文证据" },
+    });
+
+    const oversizedRequest = new PassThrough();
+    const oversized = _readDeepSeekHarnessToolJsonForTest(
+      oversizedRequest as unknown as Parameters<typeof _readDeepSeekHarnessToolJsonForTest>[0],
+      body.length - 1,
+    );
+    oversizedRequest.end(body);
+    await expect(oversized).rejects.toThrow("request body too large");
   });
 
   it("passes a model-declared reasoning selector and wire mapping to DSH", async () => {
