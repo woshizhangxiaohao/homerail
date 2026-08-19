@@ -114,7 +114,25 @@ test("binds three independent DSH reviewers to one OpenAI-compatible Qwen settin
       agentType: "deepseek_harness",
       reasoningEffort: "xhigh",
     }),
-    /reasoning_effort: xhigh/,
+    /reasoning_effort: "xhigh"/,
+  );
+
+  const yamlSensitiveEffort = "medium: fast # operator choice\nretained";
+  const yamlSensitiveSetting = {
+    ...qwenLocal,
+    reasoning_effort_map: { [yamlSensitiveEffort]: "balanced" },
+  };
+  const yamlWithSensitiveEffort = prReviewRuntimeProfileYaml({
+    profileId: "pr-review-qwen38-dsh-sensitive-effort",
+    primary: yamlSensitiveSetting,
+    arbiter: yamlSensitiveSetting,
+    third: yamlSensitiveSetting,
+    agentType: "deepseek_harness",
+    reasoningEffort: yamlSensitiveEffort,
+  });
+  assert.equal(
+    (yamlWithSensitiveEffort.match(/reasoning_effort: "medium: fast # operator choice\\nretained"/g) ?? []).length,
+    4,
   );
   assert.throws(
     () => prReviewRuntimeProfileYaml({

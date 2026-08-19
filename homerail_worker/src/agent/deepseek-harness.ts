@@ -483,9 +483,12 @@ export class DeepSeekHarnessAdapter implements AgentClient {
       };
 
       abortHandler = (): void => {
-        void harness!.client.request("session/cancel", { sessionId }).then((receipt) => {
-          if (!isRecord(receipt) || receipt.accepted !== true) return harness!.close();
-        }).catch(() => harness!.close());
+        const closeAfterAbort = async (): Promise<void> => {
+          await harness!.close().catch(() => undefined);
+        };
+        void harness!.client.request("session/cancel", { sessionId }).then(async (receipt) => {
+          if (!isRecord(receipt) || receipt.accepted !== true) await closeAfterAbort();
+        }, closeAfterAbort);
       };
       if (context.abortSignal?.aborted) abortHandler();
       else context.abortSignal?.addEventListener("abort", abortHandler, { once: true });

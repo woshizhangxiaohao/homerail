@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DeepSeekHarness } from "@deepseek-ai/dsh-sdk-client";
 import { DeepSeekHarnessAdapter, _deepSeekHarnessForkCommitForTest } from "../agent/deepseek-harness.js";
 import { AgentTurnController } from "../agent/turn-controller.js";
 import type { AgentEvent, AgentRunContext, DagToolDefinition } from "../agent/types.js";
@@ -336,5 +337,50 @@ describe("DeepSeekHarnessAdapter", () => {
     const events = await eventsPromise;
     expect(events.at(-1)).toMatchObject({ type: "done", finish_reason: "cancelled" });
     await controller.close({ outcome: "failed", reason: "cancelled" });
+  });
+
+  it("does not leak a close rejection when abort cancellation fails", async () => {
+    const root = tempRoot();
+    const readyFile = join(root, "ready");
+    const abortController = new AbortController();
+    const adapter = new DeepSeekHarnessAdapter({
+      runtimeCommand: process.execPath,
+      runtimeArgs: [fakeRuntime],
+    });
+    const originalClose = DeepSeekHarness.prototype.close;
+    const closeSpy = vi.spyOn(DeepSeekHarness.prototype, "close")
+      .mockImplementationOnce(async () => {
+        throw new Error("simulated close failure");
+      })
+      .mockImplementation(function (this: DeepSeekHarness) {
+        return originalClose.call(this);
+      });
+    const unhandled: unknown[] = [];
+    const captureUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", captureUnhandled);
+
+    try {
+      const eventsPromise = collect(adapter, context({
+        abortSignal: abortController.signal,
+        environmentVariables: {
+          DSH_FAKE_WAIT_FOR: "cancel",
+          DSH_FAKE_CANCEL_ERROR: "cancel transport failed",
+          DSH_FAKE_READY_FILE: readyFile,
+        },
+      }));
+      await vi.waitFor(() => expect(existsSync(readyFile)).toBe(true));
+      abortController.abort();
+
+      const events = await eventsPromise;
+      await new Promise((resolve) => setImmediate(resolve));
+      expect(events.at(-1)).toMatchObject({ type: "done", finish_reason: "cancelled" });
+      expect(closeSpy).toHaveBeenCalled();
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", captureUnhandled);
+      closeSpy.mockRestore();
+    }
   });
 });

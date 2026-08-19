@@ -235,6 +235,15 @@ lines.on("line", async (line) => {
     return;
   }
   if (request.method === "session/cancel") {
+    if (process.env.DSH_FAKE_CANCEL_ERROR) {
+      write({
+        jsonrpc: "2.0",
+        id: request.id,
+        error: { code: -32000, message: process.env.DSH_FAKE_CANCEL_ERROR },
+      });
+      if (process.env.DSH_FAKE_WAIT_FOR === "cancel") setTimeout(() => finish("cancelled"), 20);
+      return;
+    }
     response(request.id, { accepted: true });
     if (process.env.DSH_FAKE_WAIT_FOR === "cancel") finish("cancelled");
     return;

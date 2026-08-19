@@ -114,13 +114,13 @@ export function prReviewRuntimeProfileYaml({
     "default:",
     `  llm_setting_id: ${yamlString(primary.id)}`,
     `  agent_type: ${agentType}`,
-    ...(reasoningEffort ? [`  reasoning_effort: ${reasoningEffort}`] : []),
+    ...(reasoningEffort ? [`  reasoning_effort: ${yamlString(reasoningEffort)}`] : []),
     "agents:",
     ...Object.entries(PR_REVIEW_MODEL_AGENTS).flatMap(([agentId, role]) => [
       `  ${agentId}:`,
       `    llm_setting_id: ${yamlString(settingsByRole[role].id)}`,
       `    agent_type: ${agentType}`,
-      ...(reasoningEffort ? [`    reasoning_effort: ${reasoningEffort}`] : []),
+      ...(reasoningEffort ? [`    reasoning_effort: ${yamlString(reasoningEffort)}`] : []),
     ]),
     "",
   ].join("\n");
