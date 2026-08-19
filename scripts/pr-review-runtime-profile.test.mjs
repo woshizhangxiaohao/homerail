@@ -217,6 +217,10 @@ test("formal PR Review submits to the durable stable Manager", () => {
     workflow,
     /HOMERAIL_PR_REVIEW_AGENT_TYPE: \$\{\{ inputs\.agent_type \|\| 'claude-sdk' \}\}/,
   );
+  assert.match(
+    workflow,
+    /HOMERAIL_PR_REVIEW_REASONING_EFFORT: \$\{\{ inputs\.reasoning_effort \}\}/,
+  );
   assert.doesNotMatch(workflow, /install:all|build:packages|run-pr-review-live-runner/);
   assert.doesNotMatch(workflow, /vars\.HOMERAIL_PR_REVIEW_(?:HOME_TEMPLATE|PRIMARY_MODEL|ARBITER_MODEL|THIRD_MODEL)/);
 });
