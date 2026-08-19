@@ -122,15 +122,15 @@ function patchedConfig(patch: Record<string, unknown>): ManagerAgentConfig {
   const providerName = _string(patch.provider_name);
   const modelName = _string(patch.model_name);
   const reasoningEffort = _string(patch.reasoning_effort);
+  const harness = normalizeManagerAgentHarness(patch.harness) ?? current.harness;
   const hasReasoningEffortPatch = Object.prototype.hasOwnProperty.call(patch, "reasoning_effort");
   const explicitReasoningEffort = hasReasoningEffortPatch
-    ? reasoningEffort ?? ""
+    ? reasoningEffort ?? (harness === "deepseek_harness" ? "" : undefined)
     : undefined;
   const serviceTier = _string(patch.service_tier);
   const generativeUiMode = patch.generative_ui_mode === undefined
     ? current.generative_ui_mode
     : parseGenerativeUiMode(patch.generative_ui_mode);
-  const harness = normalizeManagerAgentHarness(patch.harness) ?? current.harness;
   if (patch.live_voice_enabled !== undefined && typeof patch.live_voice_enabled !== "boolean") {
     throw new Error("live_voice_enabled must be a boolean");
   }
