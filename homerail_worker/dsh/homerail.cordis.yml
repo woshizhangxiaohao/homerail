@@ -1,15 +1,10 @@
 # HomeRail-owned, unattended DeepSeek Harness composition.
 # stdout is reserved for the SDK JSON-RPC transport.
 
-- id: llm-deepseek
-  name: '@deepseek-ai/dsh-llm-deepseek'
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
   config:
-    apiKeyEnv: DEEPSEEK_API_KEY
-    reasoningEffort: !!js process.env.DSH_REASONING_EFFORT || 'high'
-    streamIdleTimeoutMs: 172800000
-    models:
-      - id: !!js process.env.DSH_MODEL
-        contextWindow: !!js Number(process.env.DSH_CONTEXT_WINDOW ?? 200000)
+    providers: !!js JSON.parse(process.env.HOMERAIL_DSH_PROVIDERS_JSON || '{}')
 
 - id: homerail-tools
   name: '@deepseek-ai/dsh-mcp-client'

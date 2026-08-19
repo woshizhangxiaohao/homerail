@@ -41,15 +41,15 @@ async function collect(adapter: DeepSeekHarnessAdapter, runContext: AgentRunCont
 }
 
 describe("DeepSeekHarnessAdapter", () => {
-  it("pins the compatible fork revision and projects the selected model effort", () => {
+  it("pins the compatible fork revision and uses the capability-aware pi-ai adapter", () => {
     const dockerfile = readFileSync(new URL("../../Dockerfile", import.meta.url), "utf8");
     const composition = readFileSync(new URL("../../dsh/homerail.cordis.yml", import.meta.url), "utf8");
     const dockerCommit = /^ARG HOMERAIL_DSH_FORK_COMMIT=([a-f0-9]{40})$/m.exec(dockerfile)?.[1];
 
     expect(dockerCommit).toBe(_deepSeekHarnessForkCommitForTest);
-    expect(composition).toMatch(
-      /^\s{4}reasoningEffort: !!js process\.env\.DSH_REASONING_EFFORT \|\| 'high'$/m,
-    );
+    expect(composition).toContain("@deepseek-ai/dsh-llm-pi-ai");
+    expect(composition).toContain("HOMERAIL_DSH_PROVIDERS_JSON");
+    expect(composition).not.toContain("@deepseek-ai/dsh-llm-deepseek");
   });
 
   it("maps DSH streaming, tool, usage, and completion events without leaking the Manager token", async () => {
@@ -99,11 +99,13 @@ describe("DeepSeekHarnessAdapter", () => {
     expect(recorded.managerToken).toBeUndefined();
     expect(recorded.baseUrl).toBe("https://example.invalid/v1");
     expect(recorded.cordisConfig).toBe(customConfig);
-    expect(recorded.reasoningEffort).toBe("high");
+    expect(recorded.reasoningEffort).toBeUndefined();
+    expect(recorded.reasoningEfforts).toBeUndefined();
+    expect(recorded.apiKeyPresent).toBe(true);
     expect(recorded.params).toMatchObject({ maxTokens: 32_768 });
   });
 
-  it("passes an explicit compatible reasoning effort to the DSH composition", async () => {
+  it("passes a model-declared reasoning selector and wire mapping to DSH", async () => {
     const root = tempRoot();
     const recordFile = join(root, "runtime.jsonl");
     const adapter = new DeepSeekHarnessAdapter({
@@ -112,23 +114,28 @@ describe("DeepSeekHarnessAdapter", () => {
     });
     await collect(adapter, context({
       reasoningEffort: "medium",
+      reasoningEffortMap: { off: null, medium: "balanced", high: "deep" },
       environmentVariables: { DSH_FAKE_RECORD_FILE: recordFile },
     }));
 
     const recorded = JSON.parse(readFileSync(recordFile, "utf8").trim()) as Record<string, unknown>;
     expect(recorded.reasoningEffort).toBe("medium");
+    expect(recorded.reasoningEfforts).toEqual({ off: null, medium: "balanced", high: "deep" });
   });
 
-  it("rejects an incompatible reasoning effort before starting DSH", async () => {
+  it("rejects a reasoning selector the selected model did not declare", async () => {
     const adapter = new DeepSeekHarnessAdapter({
       runtimeCommand: process.execPath,
       runtimeArgs: [fakeRuntime],
     });
 
-    const events = await collect(adapter, context({ reasoningEffort: "ultra" }));
+    const events = await collect(adapter, context({
+      reasoningEffort: "ultra",
+      reasoningEffortMap: { off: null, medium: "balanced" },
+    }));
     expect(events).toContainEqual({
       type: "error",
-      message: expect.stringContaining("DeepSeek Harness reasoning effort must be one of"),
+      message: "DeepSeek Harness failed: DeepSeek Harness model does not declare reasoning effort 'ultra'",
     });
     expect(events.at(-1)).toMatchObject({ type: "done" });
   });

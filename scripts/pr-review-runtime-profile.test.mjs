@@ -85,6 +85,7 @@ test("binds three independent DSH reviewers to one OpenAI-compatible Qwen settin
     protocol: "openai_compatible",
     base_url: "http://192.168.100.10:5000/v1",
     chat_completions_base_url: "http://192.168.100.10:5000/v1",
+    reasoning_effort_map: { medium: "medium", xhigh: "xhigh" },
     is_active: true,
     supports_llm: true,
   };
@@ -102,7 +103,7 @@ test("binds three independent DSH reviewers to one OpenAI-compatible Qwen settin
   assert.match(yaml, /description: Three independent DeepSeek Harness reviewer processes/);
   assert.equal((yaml.match(/llm_setting_id: "setting-qwen38-local"/g) ?? []).length, 4);
   assert.equal((yaml.match(/agent_type: deepseek_harness/g) ?? []).length, 4);
-  assert.equal((yaml.match(/reasoning_effort: medium/g) ?? []).length, 4);
+  assert.doesNotMatch(yaml, /reasoning_effort:/);
   assert.match(
     prReviewRuntimeProfileYaml({
       profileId: "pr-review-qwen38-dsh-xhigh",
@@ -123,7 +124,7 @@ test("binds three independent DSH reviewers to one OpenAI-compatible Qwen settin
       agentType: "deepseek_harness",
       reasoningEffort: "ultra",
     }),
-    /Unsupported DeepSeek Harness reasoning effort/,
+    /does not declare reasoning effort: ultra/,
   );
   assert.throws(
     () => selectRuntimeSetting([{ ...qwenLocal, protocol: "anthropic_compatible" }], qwenLocal.id, "primary", "deepseek_harness"),

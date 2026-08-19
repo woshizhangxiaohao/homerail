@@ -33,10 +33,10 @@ import { WORKER_RUNTIME_VERSION } from "../runtime-version.js";
 
 const DEFAULT_DSH_RUNTIME_COMMAND = "dsh-jsonrpc-agent-pkg";
 const DEFAULT_DSH_MAX_TOKENS = 32_768;
-const DSH_FORK_COMMIT = "ec75587a05bf0cc3f29dd0d5f875d3235f7deae6";
+const DEFAULT_DSH_CONTEXT_WINDOW = 200_000;
+const DSH_FORK_COMMIT = "554b7b931a503f8af98614dc8002862f13eb9298";
 const MCP_TOOL_PREFIX = "mcp__homerail__";
 const DEFAULT_SYSTEM_PROMPT = "You are a HomeRail DAG worker. Complete the assigned task and call the provided handoff tool exactly once.";
-const DSH_REASONING_EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
 
 interface DeepSeekHarnessAdapterOptions {
   runtimeCommand?: string;
@@ -120,12 +120,52 @@ function parseMaxTokens(value: number | string | undefined): number {
   return parsed;
 }
 
-function dshReasoningEffort(value: string | undefined): string {
-  const effort = value?.trim() || "high";
-  if (!DSH_REASONING_EFFORTS.has(effort)) {
-    throw new Error(`DeepSeek Harness reasoning effort must be one of: ${[...DSH_REASONING_EFFORTS].join(", ")}`);
+function dshReasoningEffort(
+  value: string | undefined,
+  effortMap: Record<string, string | null> | false | undefined,
+): string | undefined {
+  const effort = value?.trim() || undefined;
+  if (!effort) return undefined;
+  if (effortMap === undefined || effortMap === false
+    || !Object.prototype.hasOwnProperty.call(effortMap, effort)) {
+    throw new Error(`DeepSeek Harness model does not declare reasoning effort '${effort}'`);
   }
   return effort;
+}
+
+function dshProviderProfile(
+  context: AgentRunContext,
+  maxTokens: number,
+): { provider: string; reasoningEffort?: string; providersJson: string } {
+  const provider = context.provider?.trim();
+  if (!provider) throw new Error("DeepSeek Harness requires the selected model provider");
+  if (context.protocol !== "openai_compatible") {
+    throw new Error(`DeepSeek Harness pi-ai route requires openai_compatible, got ${context.protocol ?? "unknown"}`);
+  }
+  const reasoningEffort = dshReasoningEffort(context.reasoningEffort, context.reasoningEffortMap);
+  const model = {
+    id: context.model,
+    contextWindow: DEFAULT_DSH_CONTEXT_WINDOW,
+    maxTokens,
+    ...(context.reasoningEffortMap === undefined
+      ? {}
+      : { reasoningEfforts: context.reasoningEffortMap }),
+  };
+  return {
+    provider,
+    reasoningEffort,
+    providersJson: JSON.stringify({
+      [provider]: {
+        displayName: provider,
+        apiKeyEnv: "HOMERAIL_DSH_API_KEY",
+        api: "openai-completions",
+        baseURL: normalizeBaseUrl(context.baseUrl),
+        streamIdleTimeoutMs: 172_800_000,
+        models: [model],
+        ...(reasoningEffort ? { reasoning: reasoningEffort } : {}),
+      },
+    }),
+  };
 }
 
 function defaultCordisConfigPath(): string {
@@ -352,7 +392,7 @@ export class DeepSeekHarnessAdapter implements AgentClient {
     const queue = new AsyncQueue<AgentEvent>();
 
     try {
-      const reasoningEffort = dshReasoningEffort(context.reasoningEffort);
+      const providerProfile = dshProviderProfile(context, this.maxTokens);
       const maxBuiltinToolCalls = context.maxBuiltinToolCalls;
       const builtinTools = context.handoffOnly || !context.allowedBuiltinTools?.length
         ? []
@@ -378,12 +418,10 @@ export class DeepSeekHarnessAdapter implements AgentClient {
         }),
         DSH_CORDIS_CONFIG: this.cordisConfigPath,
         DSH_CWD: context.workspace ?? process.cwd(),
-        DSH_MODEL: context.model,
-        DSH_REASONING_EFFORT: reasoningEffort,
         DSH_SESSION_ROOT: join(runtimeRoot, "sessions"),
         DSH_SYSTEM_PROMPT: projectedSystemPrompt(context),
-        DEEPSEEK_API_KEY: context.apiKey,
-        DEEPSEEK_BASE_URL: normalizeBaseUrl(context.baseUrl),
+        HOMERAIL_DSH_API_KEY: context.apiKey,
+        HOMERAIL_DSH_PROVIDERS_JSON: providerProfile.providersJson,
         HOMERAIL_DSH_MCP_SCRIPT: bridge.scriptPath,
         HOMERAIL_MCP_BRIDGE_URL: bridge.url,
         HOMERAIL_MCP_BRIDGE_TOKEN: bridge.token,
@@ -396,7 +434,7 @@ export class DeepSeekHarnessAdapter implements AgentClient {
           env: childEnv,
         },
         cwd: context.workspace,
-        provider: "deepseek-official",
+        provider: providerProfile.provider,
         model: context.model,
         maxTokens: this.maxTokens,
       });
@@ -414,7 +452,10 @@ export class DeepSeekHarnessAdapter implements AgentClient {
           builtin_tools: builtinTools.map((tool) => tool.name),
           max_builtin_tool_calls: builtinTools.length > 0 ? maxBuiltinToolCalls ?? null : null,
           max_tokens: this.maxTokens,
-          reasoning_effort: reasoningEffort,
+          reasoning_effort: providerProfile.reasoningEffort ?? null,
+          reasoning_efforts: context.reasoningEffortMap !== undefined && context.reasoningEffortMap !== false
+            ? Object.keys(context.reasoningEffortMap)
+            : [],
           workspace: context.workspace ?? process.cwd(),
           process_isolation: true,
           resume_supported: false,

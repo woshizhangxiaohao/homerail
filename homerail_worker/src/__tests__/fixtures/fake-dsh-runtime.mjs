@@ -88,11 +88,15 @@ lines.on("line", (line) => {
   const request = JSON.parse(line);
   if (request.method === "initialize") {
     if (process.env.DSH_FAKE_RECORD_FILE) {
+      const providerProfiles = JSON.parse(process.env.HOMERAIL_DSH_PROVIDERS_JSON ?? "{}");
+      const providerProfile = providerProfiles[request.params.provider];
       appendFileSync(process.env.DSH_FAKE_RECORD_FILE, `${JSON.stringify({
         params: request.params,
         cordisConfig: process.env.DSH_CORDIS_CONFIG,
-        baseUrl: process.env.DEEPSEEK_BASE_URL,
-        reasoningEffort: process.env.DSH_REASONING_EFFORT,
+        baseUrl: providerProfile?.baseURL,
+        reasoningEffort: providerProfile?.reasoning,
+        reasoningEfforts: providerProfile?.models?.[0]?.reasoningEfforts,
+        apiKeyPresent: Boolean(process.env.HOMERAIL_DSH_API_KEY),
         managerToken: process.env.HOMERAIL_WORKER_TOKEN,
       })}\n`);
     }

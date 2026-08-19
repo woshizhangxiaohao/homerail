@@ -518,6 +518,8 @@ describe("agent runtime resolver", () => {
       protocol: "openai_compatible",
       base_url: "https://dsh.example/v1",
       chat_completions_base_url: "https://dsh.example/v1",
+      reasoning_effort_map: { off: null, medium: "balanced", high: "deep" },
+      default_reasoning_effort: "medium",
       is_active: true,
       is_default: true,
     });
@@ -531,20 +533,23 @@ describe("agent runtime resolver", () => {
       surface: "dag",
       settingId: setting.id,
       agentType: "deepseek-harness",
-      reasoningEffort: "medium",
+      reasoningEffort: "high",
     });
 
     expect(manager).toMatchObject({
       agent_type: "deepseek_harness",
       protocol: "openai_compatible",
       base_url: "https://dsh.example/v1",
+      reasoning_effort: "medium",
+      reasoning_effort_map: { off: null, medium: "balanced", high: "deep" },
       runtime_placement: "host_shell",
     });
     expect(dag).toMatchObject({
       agent_type: "deepseek_harness",
       protocol: "openai_compatible",
       base_url: "https://dsh.example/v1",
-      reasoning_effort: "medium",
+      reasoning_effort: "high",
+      reasoning_effort_map: { off: null, medium: "balanced", high: "deep" },
       runtime_placement: "container",
     });
     expect(() => resolveAgentRuntimeConfig({
@@ -552,7 +557,38 @@ describe("agent runtime resolver", () => {
       settingId: setting.id,
       agentType: "deepseek-harness",
       reasoningEffort: "ultra",
-    })).toThrow(/DeepSeek Harness does not support reasoning effort 'ultra'/);
+    })).toThrow(/does not support reasoning effort 'ultra'/);
+  });
+
+  it("preserves provider defaults when a DSH model declares no selectable reasoning", () => {
+    upsertProvider({
+      id: "dsh-provider-default",
+      default_model: "provider-default-model",
+      base_url: "https://dsh-default.example/v1",
+      chat_completions_base_url: "https://dsh-default.example/v1",
+    });
+    const setting = createSetting({
+      provider_id: "dsh-provider-default",
+      model_name: "provider-default-model",
+      api_key: "dsh-secret",
+      protocol: "openai_compatible",
+      base_url: "https://dsh-default.example/v1",
+      chat_completions_base_url: "https://dsh-default.example/v1",
+      is_active: true,
+      is_default: true,
+    });
+
+    expect(resolveAgentRuntimeConfig({
+      surface: "dag",
+      settingId: setting.id,
+      agentType: "deepseek_harness",
+    })).not.toHaveProperty("reasoning_effort");
+    expect(() => resolveAgentRuntimeConfig({
+      surface: "dag",
+      settingId: setting.id,
+      agentType: "deepseek_harness",
+      reasoningEffort: "medium",
+    })).toThrow(/does not declare selectable reasoning efforts/);
   });
 
   it("rejects DeepSeek Harness for non-Chat-Completions settings", () => {

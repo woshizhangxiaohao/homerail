@@ -1,12 +1,13 @@
 # DeepSeek Harness integration (WIP)
 
 Status: experimental Draft integration, validated against fork commit
-`ec75587a05bf0cc3f29dd0d5f875d3235f7deae6` on 2026-08-17.
+`554b7b931a503f8af98614dc8002862f13eb9298` on 2026-08-19. That commit
+merges the current official `master` into the HomeRail integration branch.
 
 HomeRail uses the owner-maintained
 [`xiaotianfotos/deepseek-harness`](https://github.com/xiaotianfotos/deepseek-harness)
-fork. The integration branch is `agent/homerail-sdk-control`; its base is a
-shallow clone of the official repository. The fork carries the HomeRail
+fork. The integration branch is `agent/homerail-sdk-control` and tracks the
+official repository through explicit merge commits. The fork carries the HomeRail
 composition, SDK steering and cancellation requests, and an initialization
 barrier that prevents a first prompt from racing asynchronous MCP discovery.
 
@@ -30,11 +31,22 @@ default, leaving room in large context windows for the prompt and accumulated
 tool transcript. Operators can set `HOMERAIL_DSH_MAX_TOKENS` to another
 positive integer when a model requires a tighter limit.
 
-The HomeRail Cordis composition reads `DSH_REASONING_EFFORT`, using `high` when
-the caller does not select an effort. The pinned fork's native
-chat-completions adapter passes `low`, `medium`, `high`, `xhigh`, and `max`
-through unchanged; `off` disables thinking. This lets a runtime profile tune
-the local Qwen endpoint without changing the official DeepSeek default.
+The HomeRail Cordis composition mounts DSH's configurable `llm-pi-ai` adapter.
+For each turn the Worker builds a provider route from the selected HomeRail
+model setting, including its provider id, model id, Chat Completions URL, and
+credential reference. It does not route arbitrary OpenAI-compatible models
+through the native official-DeepSeek adapter.
+
+Reasoning is a model-owned capability. A setting may declare
+`reasoning_effort_map`, whose keys are the DSH/pi-ai selector ids that this
+specific model offers and whose values are the spellings sent to its provider.
+For example, `{ "off": null, "medium": "balanced", "high": "deep" }`
+offers three choices while translating two of them to gateway-specific wire
+values. `false` explicitly declares no selectable reasoning; omission leaves
+the provider in control. `default_reasoning_effort` is optional and must name
+a key in the same map. HomeRail has no global DSH effort list and supplies no
+implicit `medium` or `high` default. A DAG profile may select only a level
+declared by every model setting it assigns.
 
 The child receives the same sanitized environment used by other agent
 backends. Manager/Worker control-plane tokens are removed, the external model
@@ -109,10 +121,10 @@ interrupts do not require Claude-specific protocol emulation.
   `LS`. Shell and mutation tools remain unsupported and fail closed. These
   four names are HomeRail-managed MCP implementations, not DSH-native
   filesystem plugins.
-- HomeRail passes the runtime profile's DSH reasoning effort through to the
-  fork. Other DSH callers retain the fork's `high` default; the local-Qwen PR
-  Review profile defaults to `medium` so three concurrent reviewers do not
-  repeatedly fill their histories with `xhigh` reasoning.
+- A model setting must declare `reasoning_effort_map` before a DAG can select a
+  reasoning level. Settings without that capability use the provider's own
+  default. This is intentional: HomeRail does not infer one provider's
+  reasoning vocabulary from Codex or from another model.
 - DSH-managed read/search tools enforce a call budget only when the workflow
   explicitly sets `max_builtin_tool_calls`. HomeRail does not impose a DSH
   default merely to compensate for one model's late handoff behavior. The
@@ -149,7 +161,8 @@ evicted under concurrent KV pressure. No DSH compaction plugin was mounted and
 the transcripts contained no compaction event. The observed prefill was normal
 multi-turn reconstruction and cache eviction, not conversation compression.
 
-The follow-up `medium` diagnostic
+The follow-up diagnostic explicitly selected `medium` in that historical
+runtime profile
 ([Actions](https://github.com/xiaotianfotos/homerail/actions/runs/32030182632),
 HomeRail run `1ee15bc9-db13-47ca-8d71-c55dda6a9dea`) completed successfully in
 about 47 minutes 35 seconds with a 9/9 scorecard. All three reviewers produced

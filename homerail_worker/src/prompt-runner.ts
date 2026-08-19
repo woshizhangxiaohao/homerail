@@ -579,6 +579,7 @@ export async function runPrompt(
       apiKey: job.llmApiKey ?? process.env.LLM_API_KEY ?? "",
       baseUrl: resolveAgentBaseUrl(job, agentBackend),
       reasoningEffort: job.dagConfig.reasoning_effort,
+      reasoningEffortMap: job.dagConfig.reasoning_effort_map,
       codexSandbox: job.dagConfig.codex_sandbox,
       serviceTier: job.dagConfig.service_tier,
       anthropicAuthMode: job.llmAnthropicAuthMode,

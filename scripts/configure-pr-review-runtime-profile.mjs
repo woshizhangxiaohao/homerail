@@ -8,8 +8,6 @@ export const PR_REVIEW_MODEL_AGENTS = Object.freeze({
   glm_reviewer: "third",
 });
 
-const DSH_REASONING_EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
-
 function nonEmpty(value) {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
@@ -30,11 +28,17 @@ function normalizedAgentType(value) {
   return agentType;
 }
 
-function normalizedDshReasoningEffort(value, agentType) {
+function normalizedDshReasoningEffort(value, agentType, settings) {
   if (agentType !== "deepseek_harness") return undefined;
-  const effort = nonEmpty(value) ?? "medium";
-  if (!DSH_REASONING_EFFORTS.has(effort)) {
-    throw new Error(`Unsupported DeepSeek Harness reasoning effort: ${effort}`);
+  const effort = nonEmpty(value);
+  if (!effort) return undefined;
+  for (const setting of new Set(settings)) {
+    const effortMap = setting?.reasoning_effort_map;
+    if (!effortMap || typeof effortMap !== "object" || !(effort in effortMap)) {
+      throw new Error(
+        `DeepSeek Harness model setting ${setting?.id ?? "unknown"} does not declare reasoning effort: ${effort}`,
+      );
+    }
   }
   return effort;
 }
@@ -81,7 +85,7 @@ export function prReviewRuntimeProfileYaml({
   reasoningEffort,
 }) {
   agentType = normalizedAgentType(agentType);
-  reasoningEffort = normalizedDshReasoningEffort(reasoningEffort, agentType);
+  reasoningEffort = normalizedDshReasoningEffort(reasoningEffort, agentType, [primary, arbiter, third]);
   if (agentType === "claude-sdk" && new Set([primary.id, arbiter.id, third.id]).size !== 3) {
     throw new Error("PR Review requires three distinct LLM settings");
   }

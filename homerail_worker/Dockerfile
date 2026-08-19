@@ -24,7 +24,7 @@ FROM node:22-slim AS dsh-runtime-build
 ARG HOMERAIL_WORKER_BUILD_APT_MIRROR
 ARG HOMERAIL_WORKER_BUILD_APT_SECURITY_MIRROR
 ARG NPM_CONFIG_REGISTRY
-ARG HOMERAIL_DSH_FORK_COMMIT=ec75587a05bf0cc3f29dd0d5f875d3235f7deae6
+ARG HOMERAIL_DSH_FORK_COMMIT=554b7b931a503f8af98614dc8002862f13eb9298
 COPY homerail_worker/scripts/configure-apt-sources.mjs /opt/homerail/scripts/configure-apt-sources.mjs
 RUN node /opt/homerail/scripts/configure-apt-sources.mjs
 RUN apt-get update \

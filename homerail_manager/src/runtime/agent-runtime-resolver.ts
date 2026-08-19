@@ -12,6 +12,7 @@ import {
   resolveClaudeSdkBaseUrlForSetting,
   resolveClaudeSdkAuthModeForSetting,
   type LLMSetting,
+  type ReasoningEffortMap,
 } from "../persistence/llm-settings.js";
 import {
   canonicalModelNameForEndpoint,
@@ -38,8 +39,6 @@ import {
 
 export type AgentRuntimeSurface = "manager_agent" | "dag";
 
-const DSH_REASONING_EFFORTS = new Set(["off", "low", "medium", "high", "xhigh", "max"]);
-
 export interface AgentRuntimeResolutionInput {
   surface: AgentRuntimeSurface;
   providerName?: string;
@@ -64,6 +63,7 @@ export interface AgentRuntimeResolution {
   runtime_placement: ManagerAgentRuntimePlacementValue;
   llm_setting_id?: string;
   reasoning_effort?: string;
+  reasoning_effort_map?: ReasoningEffortMap | false;
   service_tier?: string | null;
 }
 
@@ -217,6 +217,12 @@ export function resolveAgentRuntimeConfig(input: AgentRuntimeResolutionInput): A
     findCatalogEndpoint(setting.provider_id, setting.endpoint_id),
     model,
   );
+  const reasoningEffortMap = model === setting.model_name
+    ? setting.reasoning_effort_map
+    : catalogModel?.reasoning_effort_map;
+  const defaultReasoningEffort = model === setting.model_name
+    ? setting.default_reasoning_effort
+    : catalogModel?.default_reasoning_effort;
   if (agentType === "codex_appserver" && codexResponsesModelSupport(setting.provider_id, model) === "unsupported") {
     throw new Error(`Codex app-server Responses is not supported for ${setting.provider_id}/${model}`);
   }
@@ -249,11 +255,17 @@ export function resolveAgentRuntimeConfig(input: AgentRuntimeResolutionInput): A
       );
     }
   } else if (agentType === "deepseek_harness") {
-    reasoningEffort = input.reasoningEffort?.trim() || undefined;
-    if (reasoningEffort && !DSH_REASONING_EFFORTS.has(reasoningEffort)) {
+    reasoningEffort = input.reasoningEffort?.trim() || defaultReasoningEffort;
+    if (reasoningEffort && (reasoningEffortMap === undefined || reasoningEffortMap === false)) {
       throw new Error(
-        `DeepSeek Harness does not support reasoning effort '${reasoningEffort}'. `
-        + `Supported values: ${[...DSH_REASONING_EFFORTS].join(", ")}.`,
+        `DeepSeek Harness model '${setting.provider_id}/${model}' does not declare selectable reasoning efforts.`,
+      );
+    }
+    if (reasoningEffort && reasoningEffortMap !== undefined && reasoningEffortMap !== false
+      && !Object.prototype.hasOwnProperty.call(reasoningEffortMap, reasoningEffort)) {
+      throw new Error(
+        `DeepSeek Harness model '${setting.provider_id}/${model}' does not support reasoning effort '${reasoningEffort}'. `
+        + `Supported values: ${Object.keys(reasoningEffortMap).join(", ")}.`,
       );
     }
   }
@@ -278,6 +290,9 @@ export function resolveAgentRuntimeConfig(input: AgentRuntimeResolutionInput): A
     runtime_placement: runtimePlacementForAgentType(agentType, input.surface),
     llm_setting_id: setting.id,
     ...(reasoningEffort ? { reasoning_effort: reasoningEffort } : {}),
+    ...(agentType === "deepseek_harness" && reasoningEffortMap !== undefined
+      ? { reasoning_effort_map: reasoningEffortMap }
+      : {}),
     ...(serviceTier !== undefined ? { service_tier: serviceTier } : {}),
   };
 }
