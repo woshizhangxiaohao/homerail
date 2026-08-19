@@ -122,6 +122,10 @@ function patchedConfig(patch: Record<string, unknown>): ManagerAgentConfig {
   const providerName = _string(patch.provider_name);
   const modelName = _string(patch.model_name);
   const reasoningEffort = _string(patch.reasoning_effort);
+  const hasReasoningEffortPatch = Object.prototype.hasOwnProperty.call(patch, "reasoning_effort");
+  const explicitReasoningEffort = hasReasoningEffortPatch
+    ? reasoningEffort ?? ""
+    : undefined;
   const serviceTier = _string(patch.service_tier);
   const generativeUiMode = patch.generative_ui_mode === undefined
     ? current.generative_ui_mode
@@ -147,7 +151,7 @@ function patchedConfig(patch: Record<string, unknown>): ManagerAgentConfig {
   const mergedSettingId = settingId === undefined ? current.llm_setting_id : settingId;
   const mergedProviderName = providerName === undefined ? current.provider_name : providerName;
   const mergedModelName = modelName === undefined ? current.model_name : modelName;
-  const mergedReasoningEffort = reasoningEffort ?? current.reasoning_effort;
+  const mergedReasoningEffort = explicitReasoningEffort ?? current.reasoning_effort;
   const mergedServiceTier = serviceTier === undefined
     ? current.service_tier
     : normalizedServiceTier(serviceTier);
@@ -178,11 +182,20 @@ function patchedConfig(patch: Record<string, unknown>): ManagerAgentConfig {
       llm_setting_id: preferredSetting?.id ?? (useAutomaticProvider || useExplicitSubscriptionModel ? null : mergedSettingId),
       provider_name: preferredSetting?.provider_id ?? (useAutomaticProvider || useExplicitSubscriptionModel ? null : mergedProviderName),
       model_name: preferredSetting?.model_name ?? (useAutomaticProvider && modelName === undefined ? null : mergedModelName),
-      reasoning_effort: reasoningEffort ?? selectedProviderDefault ?? mergedReasoningEffort,
+      reasoning_effort: explicitReasoningEffort ?? selectedProviderDefault ?? mergedReasoningEffort,
       service_tier: mergedServiceTier,
       generative_ui_mode: generativeUiMode,
     };
   }
+  const dshRuntimeSelectionChanged = harness === "deepseek_harness" && (
+    current.harness !== "deepseek_harness"
+    || settingId !== undefined
+    || providerName !== undefined
+    || modelName !== undefined
+  );
+  const dshSetting = harness === "deepseek_harness" && typeof mergedSettingId === "string"
+    ? getSetting(mergedSettingId)
+    : undefined;
   return {
     ...current,
     harness,
@@ -191,7 +204,8 @@ function patchedConfig(patch: Record<string, unknown>): ManagerAgentConfig {
     llm_setting_id: mergedSettingId,
     provider_name: mergedProviderName,
     model_name: mergedModelName,
-    reasoning_effort: mergedReasoningEffort,
+    reasoning_effort: explicitReasoningEffort
+      ?? (dshRuntimeSelectionChanged ? dshSetting?.default_reasoning_effort ?? "" : mergedReasoningEffort),
     service_tier: mergedServiceTier,
     generative_ui_mode: generativeUiMode,
   };
