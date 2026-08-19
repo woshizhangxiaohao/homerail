@@ -717,6 +717,27 @@ describe("Worker Dockerfile source wiring", () => {
     expect(dockerfile).not.toMatch(/ENV[^\n]*HOMERAIL_WORKER_BUILD_APT/);
   });
 
+  it("repairs skipped optional agent platform payloads before verifying the CLIs", () => {
+    const finalStage = dockerfileStages().at(-1);
+    expect(finalStage).toBeDefined();
+    const runs = runInstructions(finalStage?.lines ?? []);
+    const installIndex = runs.findIndex((instruction) => instruction.text.includes("npm ci --ignore-scripts"));
+    const repairIndex = runs.findIndex((instruction) => instruction.text.includes("codex_platform="));
+    expect(installIndex).toBeGreaterThanOrEqual(0);
+    expect(repairIndex).toBeGreaterThan(installIndex);
+
+    const repair = runs[repairIndex]?.text ?? "";
+    expect(repair).toContain("amd64) codex_arch=x64");
+    expect(repair).toContain("arm64) codex_arch=arm64");
+    expect(repair).toContain("node_modules/@anthropic-ai/claude-agent-sdk/package.json");
+    expect(repair).toContain("@anthropic-ai/claude-agent-sdk-linux-${codex_arch}");
+    expect(repair).toContain("node_modules/@openai/codex/package.json");
+    expect(repair).toContain("npm install --no-save --package-lock=false --ignore-scripts");
+    expect(repair).toContain("@npm:@openai/codex@${codex_version}-linux-${codex_arch}");
+    expect(repair).toContain("node_modules/${claude_platform}/claude");
+    expect(repair).toContain("codex --version");
+  });
+
   it("allows the pinned DSH fork and Corepack bootstrap to use validated mirrors", () => {
     expect(dockerfile).toContain(
       "ARG HOMERAIL_DSH_FORK_REPOSITORY=https://github.com/xiaotianfotos/deepseek-harness.git",

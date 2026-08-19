@@ -91,7 +91,31 @@ COPY homerail_worker/package.json homerail_worker/package-lock.json* ./
 # --ignore-scripts skips postinstall since homerail_protocol is already built above
 RUN npm ci --ignore-scripts
 RUN command -v kimi
-RUN command -v codex && codex --version
+# npm treats the Claude SDK and Codex native platform payloads as optional, so
+# a transient fetch failure can leave a successful install with unusable agent
+# backends. Repair only the current Linux architecture at the exact pinned
+# versions, without changing the image-owned package lock, then verify them.
+RUN codex_arch="$(dpkg --print-architecture)" \
+  && case "$codex_arch" in \
+    amd64) codex_arch=x64 ;; \
+    arm64) codex_arch=arm64 ;; \
+    *) echo "Unsupported Codex Worker architecture: $codex_arch" >&2; exit 1 ;; \
+  esac \
+  && claude_version="$(node -p 'require("./node_modules/@anthropic-ai/claude-agent-sdk/package.json").version')" \
+  && claude_platform="@anthropic-ai/claude-agent-sdk-linux-${codex_arch}" \
+  && if [ ! -d "node_modules/${claude_platform}" ]; then \
+    npm install --no-save --package-lock=false --ignore-scripts \
+      "${claude_platform}@${claude_version}"; \
+  fi \
+  && codex_version="$(node -p 'require("./node_modules/@openai/codex/package.json").version')" \
+  && codex_platform="@openai/codex-linux-${codex_arch}" \
+  && if [ ! -d "node_modules/${codex_platform}" ]; then \
+    npm install --no-save --package-lock=false --ignore-scripts \
+      "${codex_platform}@npm:@openai/codex@${codex_version}-linux-${codex_arch}"; \
+  fi \
+  && test -x "node_modules/${claude_platform}/claude" \
+  && command -v codex \
+  && codex --version
 
 # Auto Fix coding Workers run without network access. Keep a trusted dependency
 # cache in the image for the HomeRail packages exercised by implementation and
