@@ -1,11 +1,11 @@
 import {
-  lstatSync,
   readFileSync,
   readdirSync,
   realpathSync,
   statSync,
 } from "node:fs";
 import path from "node:path";
+import { Worker } from "node:worker_threads";
 import type { AgentBuiltinToolName, DagWorkspaceAccess } from "homerail-protocol";
 import type { DagToolDefinition } from "./types.js";
 
@@ -16,12 +16,15 @@ const MAX_GREP_RESULTS = 500;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_READ_LINES = 2_000;
 const MAX_RESULT_CHARS = 120_000;
+const DEFAULT_GREP_TIMEOUT_MS = 2_000;
+const MAX_GREP_TIMEOUT_MS = 30_000;
 
 interface ReadToolOptions {
   workspace: string;
   workspaceAccess: DagWorkspaceAccess;
   allowedTools: AgentBuiltinToolName[];
   maxCalls?: number;
+  grepTimeoutMs?: number;
 }
 
 interface PolicyRoots {
@@ -65,11 +68,19 @@ function policyRoots(options: ReadToolOptions): PolicyRoots {
     if (!isWithin(workspace, lexical)) {
       throw new Error(`DSH workspace read policy root escapes workspace: ${entry}`);
     }
-    const resolved = realpathSync(lexical);
-    if (!isWithin(workspace, resolved)) {
-      throw new Error(`DSH workspace read policy root escapes workspace: ${entry}`);
+    try {
+      const resolved = realpathSync(lexical);
+      if (!isWithin(workspace, resolved)) {
+        throw new Error(`DSH workspace read policy root escapes workspace: ${entry}`);
+      }
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+      // A declared root may be staged after the turn starts. Preserve its
+      // lexical location now and resolve it again for every tool call.
     }
-    return resolved;
+    return lexical;
   });
   return { workspace, roots: [...new Set(roots)] };
 }
@@ -101,7 +112,15 @@ function resolveTarget(policy: PolicyRoots, requested: string): string {
     throw new Error(`path must be relative and traversal-free: ${requested}`);
   }
   const resolved = realpathSync(path.resolve(policy.workspace, requested));
-  if (!isWithin(policy.workspace, resolved) || !policy.roots.some((root) => isWithin(root, resolved))) {
+  const insideRoot = policy.roots.some((rootPath) => {
+    try {
+      const root = realpathSync(rootPath);
+      return isWithin(policy.workspace, root) && isWithin(root, resolved);
+    } catch {
+      return false;
+    }
+  });
+  if (!isWithin(policy.workspace, resolved) || !insideRoot) {
     throw new Error(`path is outside the declared workspace roots: ${requested}`);
   }
   return resolved;
@@ -119,7 +138,7 @@ function result(text: string, isError = false): Awaited<ReturnType<DagToolDefini
   };
 }
 
-function globRegex(pattern: string): RegExp {
+function globMatcher(pattern: string): (candidate: string) => boolean {
   if (!pattern.trim() || pattern.length > 2_000 || pattern.includes("\0") || path.isAbsolute(pattern)) {
     throw new Error("pattern must be a relative glob of at most 2000 characters");
   }
@@ -127,28 +146,172 @@ function globRegex(pattern: string): RegExp {
   if (normalized.split("/").includes("..")) {
     throw new Error("pattern must not traverse outside the search path");
   }
-  let source = "";
-  for (let index = 0; index < normalized.length; index += 1) {
-    const character = normalized[index];
-    if (character === "*") {
-      if (normalized[index + 1] === "*") {
-        index += 1;
-        if (normalized[index + 1] === "/") {
-          index += 1;
-          source += "(?:.*/)?";
-        } else {
-          source += ".*";
-        }
+  const patternSegments = normalized.split("/");
+  if (patternSegments.some((segment) => !segment || (segment.includes("**") && segment !== "**"))) {
+    throw new Error("globstar must occupy a complete, non-empty path segment");
+  }
+
+  const matchSegment = (segmentPattern: string, value: string): boolean => {
+    let patternIndex = 0;
+    let valueIndex = 0;
+    let starIndex = -1;
+    let retryIndex = -1;
+    while (valueIndex < value.length) {
+      const character = segmentPattern[patternIndex];
+      if (character === "?" || character === value[valueIndex]) {
+        patternIndex += 1;
+        valueIndex += 1;
+      } else if (character === "*") {
+        starIndex = patternIndex;
+        retryIndex = valueIndex;
+        patternIndex += 1;
+      } else if (starIndex >= 0) {
+        patternIndex = starIndex + 1;
+        retryIndex += 1;
+        valueIndex = retryIndex;
       } else {
-        source += "[^/]*";
+        return false;
       }
-    } else if (character === "?") {
-      source += "[^/]";
-    } else {
-      source += character.replace(/[|\\{}()[\]^$+?.]/g, "\\$&");
+    }
+    while (segmentPattern[patternIndex] === "*") patternIndex += 1;
+    return patternIndex === segmentPattern.length;
+  };
+
+  return (candidate: string): boolean => {
+    const valueSegments = candidate.split("/");
+    let states = new Set<number>([0]);
+    const closeGlobstars = (input: Set<number>): Set<number> => {
+      const closed = new Set(input);
+      for (const state of closed) {
+        if (patternSegments[state] === "**") closed.add(state + 1);
+      }
+      return closed;
+    };
+    states = closeGlobstars(states);
+    for (const value of valueSegments) {
+      const next = new Set<number>();
+      for (const state of states) {
+        const segment = patternSegments[state];
+        if (segment === "**") next.add(state);
+        else if (segment !== undefined && matchSegment(segment, value)) next.add(state + 1);
+      }
+      states = closeGlobstars(next);
+      if (states.size === 0) return false;
+    }
+    return closeGlobstars(states).has(patternSegments.length);
+  };
+}
+
+const GREP_WORKER_SOURCE = String.raw`
+const { parentPort, workerData } = require("node:worker_threads");
+const { lstatSync, readFileSync } = require("node:fs");
+
+function run(expression) {
+  const matches = [];
+  let outputChars = 0;
+  for (const entry of workerData.files) {
+    const stats = lstatSync(entry.path);
+    if (!stats.isFile() || stats.size > workerData.maxFileBytes) continue;
+    const content = readFileSync(entry.path);
+    if (content.includes(0)) continue;
+    const lines = content.toString("utf8").split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      expression.lastIndex = 0;
+      if (!expression.test(lines[index])) continue;
+      const rendered = entry.display + ":" + (index + 1) + ":" + lines[index];
+      const separatorChars = matches.length > 0 ? 1 : 0;
+      if (outputChars + separatorChars + rendered.length > workerData.maxResultChars) {
+        const remaining = workerData.maxResultChars - outputChars - separatorChars;
+        if (remaining > 0) matches.push(rendered.slice(0, remaining));
+        return matches.join("\n") + "\n[output truncated at " + workerData.maxResultChars + " characters]";
+      }
+      matches.push(rendered);
+      outputChars += separatorChars + rendered.length;
+      if (matches.length >= workerData.maxResults) {
+        return matches.join("\n") + "\n[results truncated at " + workerData.maxResults + " matches]";
+      }
     }
   }
-  return new RegExp(`^${source}$`);
+  return matches.join("\n");
+}
+
+let expression;
+try {
+  expression = new RegExp(workerData.pattern, workerData.flags);
+} catch (error) {
+  parentPort.postMessage({
+    errorType: "invalid_regex",
+    error: error instanceof Error ? error.message : String(error),
+  });
+}
+if (expression) {
+  try {
+    parentPort.postMessage({ text: run(expression) });
+  } catch (error) {
+    parentPort.postMessage({
+      errorType: "runtime",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+`;
+
+interface GrepWorkerFile {
+  path: string;
+  display: string;
+}
+
+function grepInWorker(
+  files: GrepWorkerFile[],
+  pattern: string,
+  caseInsensitive: boolean,
+  timeoutMs: number,
+): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(GREP_WORKER_SOURCE, {
+      eval: true,
+      workerData: {
+        files,
+        pattern,
+        flags: caseInsensitive ? "i" : "",
+        maxFileBytes: MAX_FILE_BYTES,
+        maxResults: MAX_GREP_RESULTS,
+        maxResultChars: MAX_RESULT_CHARS,
+      },
+    });
+    let settled = false;
+    const finish = (callback: () => void) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      worker.removeAllListeners();
+      void worker.terminate();
+      callback();
+    };
+    const timer = setTimeout(() => {
+      finish(() => reject(new Error(`Grep search timed out after ${timeoutMs}ms`)));
+    }, timeoutMs);
+    worker.once("message", (message: unknown) => {
+      finish(() => {
+        if (!isRecord(message)) {
+          reject(new Error("Grep worker returned an invalid response"));
+        } else if (message.errorType === "invalid_regex" && typeof message.error === "string") {
+          reject(new Error(`invalid Grep regular expression: ${message.error}`));
+        } else if (typeof message.error === "string") {
+          reject(new Error(`Grep worker failed: ${message.error}`));
+        } else if (typeof message.text === "string") {
+          resolve(message.text);
+        } else {
+          reject(new Error("Grep worker returned an invalid response"));
+        }
+      });
+    });
+    worker.once("error", (error) => finish(() => reject(error)));
+    worker.once("exit", (code) => {
+      if (code !== 0) finish(() => reject(new Error(`Grep worker exited with code ${code}`)));
+      else finish(() => reject(new Error("Grep worker exited without a response")));
+    });
+  });
 }
 
 function enumerateFiles(root: string): string[] {
@@ -210,10 +373,10 @@ function globHandler(policy: PolicyRoots, args: Record<string, unknown>) {
   const requested = stringArg(args, "path");
   const root = resolveTarget(policy, requested);
   if (!statSync(root).isDirectory()) throw new Error(`Glob path is not a directory: ${requested}`);
-  const matches = globRegex(stringArg(args, "pattern"));
+  const matches = globMatcher(stringArg(args, "pattern"));
   const paths = enumerateFiles(root)
     .map((candidate) => relativeToSearchRoot(root, candidate))
-    .filter((candidate) => matches.test(candidate))
+    .filter((candidate) => matches(candidate))
     .sort();
   if (paths.length > MAX_GLOB_RESULTS) {
     return `${paths.slice(0, MAX_GLOB_RESULTS).join("\n")}\n[${paths.length - MAX_GLOB_RESULTS} additional paths omitted]`;
@@ -221,40 +384,23 @@ function globHandler(policy: PolicyRoots, args: Record<string, unknown>) {
   return paths.join("\n");
 }
 
-function grepHandler(policy: PolicyRoots, args: Record<string, unknown>) {
+async function grepHandler(policy: PolicyRoots, args: Record<string, unknown>, timeoutMs: number): Promise<string> {
   const requested = stringArg(args, "path");
   const target = resolveTarget(policy, requested);
   const pattern = stringArg(args, "pattern");
   if (pattern.length > 2_000) throw new Error("pattern must be at most 2000 characters");
-  let expression: RegExp;
-  try {
-    expression = new RegExp(pattern, args.case_insensitive === true ? "i" : "");
-  } catch (error) {
-    throw new Error(`invalid Grep regular expression: ${error instanceof Error ? error.message : String(error)}`);
-  }
   const include = typeof args.glob === "string" && args.glob.trim()
-    ? globRegex(args.glob.trim())
+    ? globMatcher(args.glob.trim())
     : undefined;
-  const files = statSync(target).isFile() ? [target] : enumerateFiles(target);
-  const matches: string[] = [];
+  const targetIsFile = statSync(target).isFile();
+  const files = targetIsFile ? [target] : enumerateFiles(target);
+  const workerFiles: GrepWorkerFile[] = [];
   for (const file of files) {
-    const relative = statSync(target).isFile() ? path.basename(file) : relativeToSearchRoot(target, file);
-    if (include && !include.test(relative)) continue;
-    const stats = lstatSync(file);
-    if (!stats.isFile() || stats.size > MAX_FILE_BYTES) continue;
-    const content = readFileSync(file);
-    if (content.includes(0)) continue;
-    const lines = content.toString("utf8").split(/\r?\n/);
-    for (let index = 0; index < lines.length; index += 1) {
-      expression.lastIndex = 0;
-      if (!expression.test(lines[index])) continue;
-      matches.push(`${relative}:${index + 1}:${lines[index]}`);
-      if (matches.length >= MAX_GREP_RESULTS) {
-        return `${matches.join("\n")}\n[results truncated at ${MAX_GREP_RESULTS} matches]`;
-      }
-    }
+    const relative = targetIsFile ? path.basename(file) : relativeToSearchRoot(target, file);
+    if (include && !include(relative)) continue;
+    workerFiles.push({ path: file, display: relative });
   }
-  return matches.join("\n");
+  return grepInWorker(workerFiles, pattern, args.case_insensitive === true, timeoutMs);
 }
 
 function schemaFor(name: AgentBuiltinToolName): Record<string, unknown> {
@@ -322,6 +468,10 @@ export function createDeepSeekHarnessReadTools(options: ReadToolOptions): DagToo
   if (options.maxCalls !== undefined && (!Number.isInteger(options.maxCalls) || options.maxCalls < 1)) {
     throw new Error("built-in tool budget must be a positive integer");
   }
+  const grepTimeoutMs = options.grepTimeoutMs ?? DEFAULT_GREP_TIMEOUT_MS;
+  if (!Number.isInteger(grepTimeoutMs) || grepTimeoutMs < 1 || grepTimeoutMs > MAX_GREP_TIMEOUT_MS) {
+    throw new Error(`Grep timeout must be an integer from 1 through ${MAX_GREP_TIMEOUT_MS}`);
+  }
   const policy = policyRoots(options);
   let calls = 0;
   return options.allowedTools.map((name) => ({
@@ -341,7 +491,7 @@ export function createDeepSeekHarnessReadTools(options: ReadToolOptions): DagToo
         const text = name === "Read"
           ? readHandler(policy, args)
           : name === "Grep"
-            ? grepHandler(policy, args)
+            ? await grepHandler(policy, args, grepTimeoutMs)
             : name === "Glob"
               ? globHandler(policy, args)
               : lsHandler(policy, args);

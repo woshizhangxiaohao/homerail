@@ -117,7 +117,8 @@ review after evaluating that boundary.
 Manual dispatch may also select one Manager LLM setting and
 `deepseek_harness` for all three reviewer slots. This creates three independent
 DSH processes and votes while intentionally sharing the same model setting; it
-does not overwrite the normal mixed-model profile.
+uses the separate `pr-review-dsh` profile by default and cannot overwrite the
+normal mixed-model profile.
 
 PR Review jobs require a dedicated self-hosted runner with the
 `homerail-pr-review` label. Live catalog validation continues to use the
