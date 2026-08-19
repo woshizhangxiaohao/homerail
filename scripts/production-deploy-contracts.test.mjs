@@ -736,6 +736,8 @@ exec "${process.execPath}" "$@"
     HOMERAIL_WORKER_BUILD_DSH_GIT_REMOTE: [
       "ssh://git.example.com/deepseek-harness.git",
       "https://user:secret@git.example.com/deepseek-harness.git",
+      "https://git.example.com/deepseek-harness$(touch).git",
+      "https://git.example.com/deepseek-harness(test).git",
     ],
   };
   for (const [name, values] of Object.entries(invalidValues)) {

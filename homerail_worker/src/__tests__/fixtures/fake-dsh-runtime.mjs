@@ -1,4 +1,5 @@
 import { appendFileSync } from "node:fs";
+import { spawn } from "node:child_process";
 import { createInterface } from "node:readline";
 
 const lines = createInterface({ input: process.stdin });
@@ -13,6 +14,92 @@ function write(value) {
 
 function response(id, result) {
   write({ jsonrpc: "2.0", id, result });
+}
+
+async function exerciseMcpBridge() {
+  const script = process.env.HOMERAIL_DSH_MCP_SCRIPT;
+  const bridgeUrl = process.env.HOMERAIL_MCP_BRIDGE_URL;
+  const bridgeToken = process.env.HOMERAIL_MCP_BRIDGE_TOKEN;
+  if (!script || !bridgeUrl || !bridgeToken) throw new Error("DSH MCP bridge environment is incomplete");
+
+  const child = spawn(process.execPath, [script], {
+    env: {
+      HOMERAIL_MCP_BRIDGE_URL: bridgeUrl,
+      HOMERAIL_MCP_BRIDGE_TOKEN: bridgeToken,
+    },
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  const childLines = createInterface({ input: child.stdout });
+  const pending = new Map();
+  let requestId = 0;
+  let stderr = "";
+  child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
+  childLines.on("line", (line) => {
+    const message = JSON.parse(line);
+    const waiter = pending.get(message.id);
+    if (!waiter) return;
+    pending.delete(message.id);
+    clearTimeout(waiter.timeout);
+    if (message.error) waiter.reject(new Error(message.error.message));
+    else waiter.resolve(message.result);
+  });
+  child.on("error", (error) => {
+    for (const waiter of pending.values()) {
+      clearTimeout(waiter.timeout);
+      waiter.reject(error);
+    }
+    pending.clear();
+  });
+  const request = (method, params = {}) => new Promise((resolve, reject) => {
+    const id = ++requestId;
+    const timeout = setTimeout(() => {
+      if (!pending.delete(id)) return;
+      reject(new Error(`DSH MCP request timed out: ${method}; stderr=${stderr}`));
+    }, 5_000);
+    pending.set(id, { resolve, reject, timeout });
+    child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", id, method, params })}\n`);
+  });
+
+  try {
+    const initialized = await request("initialize", {
+      protocolVersion: "2024-11-05",
+      capabilities: {},
+    });
+    child.stdin.write(`${JSON.stringify({
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+      params: {},
+    })}\n`);
+    const listed = await request("tools/list");
+    const called = await request("tools/call", {
+      name: "handoff",
+      arguments: { port: "done", content: { ok: true } },
+    });
+    const unknown = await request("tools/call", { name: "missing", arguments: {} });
+    const composite = await request("tools/call", {
+      name: "mcp__homerail__handoff",
+      arguments: { port: "done" },
+    });
+    const unauthorizedResponse = await fetch(`${bridgeUrl}/tool`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "handoff", args: {} }),
+    });
+    return {
+      initialized,
+      listed,
+      called,
+      unknown,
+      composite,
+      unauthorized: {
+        status: unauthorizedResponse.status,
+        body: await unauthorizedResponse.json(),
+      },
+    };
+  } finally {
+    childLines.close();
+    child.kill("SIGTERM");
+  }
 }
 
 function event(sessionId, type, data) {
@@ -83,7 +170,7 @@ function startPrompt(params) {
   return activeMessage;
 }
 
-lines.on("line", (line) => {
+lines.on("line", async (line) => {
   if (!line.trim()) return;
   const request = JSON.parse(line);
   if (request.method === "initialize") {
@@ -105,6 +192,21 @@ lines.on("line", (line) => {
   }
   if (request.method === "session/prompt") {
     const messageId = startPrompt(request.params);
+    if (process.env.DSH_FAKE_EXERCISE_MCP) {
+      try {
+        const mcp = await exerciseMcpBridge();
+        if (process.env.DSH_FAKE_RECORD_FILE) {
+          appendFileSync(process.env.DSH_FAKE_RECORD_FILE, `${JSON.stringify({ mcp })}\n`);
+        }
+      } catch (error) {
+        write({
+          jsonrpc: "2.0",
+          id: request.id,
+          error: { code: -32000, message: error instanceof Error ? error.message : String(error) },
+        });
+        return;
+      }
+    }
     response(request.id, { messageId });
     event(activeSession, "agent/inbox/spliced", {
       target: "next-turn",

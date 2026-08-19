@@ -58,7 +58,7 @@ export class WorkerBuildNetworkError extends Error {
 }
 
 const NON_PRINTABLE_OR_NON_ASCII_SOURCE_CHARACTERS = /[^\u0021-\u007e]/;
-const URL_REWRITE_SOURCE_CHARACTERS = /["%<>`^{}|\\]/;
+const URL_REWRITE_SOURCE_CHARACTERS = /["$()%<>`^{}|\\]/;
 const URL_PATH_BRACKETS = /[\[\]]/;
 const URL_AUTHORITY_USERINFO = /^[a-z][a-z0-9+.-]*:\/\/[^/?#]*@/i;
 
@@ -82,7 +82,7 @@ function resolveSourceUrl(envKey: string, raw: string | undefined): string | und
   if (URL_REWRITE_SOURCE_CHARACTERS.test(trimmed)) {
     throw new WorkerBuildNetworkError(
       envKey,
-      "value must not contain characters that require URL encoding.",
+      "value must not contain unsupported URL characters.",
     );
   }
   // Check raw authority text as WHATWG parsing drops an empty userinfo marker

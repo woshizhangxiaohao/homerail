@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DeepSeekHarnessAdapter, _deepSeekHarnessForkCommitForTest } from "../agent/deepseek-harness.js";
 import { AgentTurnController } from "../agent/turn-controller.js";
-import type { AgentEvent, AgentRunContext } from "../agent/types.js";
+import type { AgentEvent, AgentRunContext, DagToolDefinition } from "../agent/types.js";
 
 const fakeRuntime = fileURLToPath(new URL("./fixtures/fake-dsh-runtime.mjs", import.meta.url));
 const tempRoots: string[] = [];
@@ -34,9 +34,13 @@ function context(overrides: Partial<AgentRunContext> = {}): AgentRunContext {
   };
 }
 
-async function collect(adapter: DeepSeekHarnessAdapter, runContext: AgentRunContext): Promise<AgentEvent[]> {
+async function collect(
+  adapter: DeepSeekHarnessAdapter,
+  runContext: AgentRunContext,
+  tools: DagToolDefinition[] = [],
+): Promise<AgentEvent[]> {
   const events: AgentEvent[] = [];
-  for await (const event of adapter.run("do the work", [], runContext)) events.push(event);
+  for await (const event of adapter.run("do the work", tools, runContext)) events.push(event);
   return events;
 }
 
@@ -103,6 +107,70 @@ describe("DeepSeekHarnessAdapter", () => {
     expect(recorded.reasoningEfforts).toBeUndefined();
     expect(recorded.apiKeyPresent).toBe(true);
     expect(recorded.params).toMatchObject({ maxTokens: 32_768 });
+  });
+
+  it("runs the generated MCP proxy through the authenticated loopback tool bridge", async () => {
+    const root = tempRoot();
+    const recordFile = join(root, "runtime.jsonl");
+    const calls: Array<{ args: Record<string, unknown>; toolCallId?: string }> = [];
+    const handoffTool: DagToolDefinition = {
+      name: "handoff",
+      description: "Submit a terminal handoff",
+      input_schema: { type: "object" },
+      handler: async (args, metadata) => {
+        calls.push({ args, toolCallId: metadata?.tool_call_id });
+        return { content: [{ type: "text", text: "accepted:done" }] };
+      },
+    };
+    const adapter = new DeepSeekHarnessAdapter({
+      runtimeCommand: process.execPath,
+      runtimeArgs: [fakeRuntime],
+    });
+    const events = await collect(adapter, context({
+      environmentVariables: {
+        DSH_FAKE_RECORD_FILE: recordFile,
+        DSH_FAKE_EXERCISE_MCP: "1",
+      },
+    }), [handoffTool]);
+
+    const records = readFileSync(recordFile, "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>);
+    const exercised = records.find((record) => record.mcp) as {
+      mcp: {
+        initialized: { serverInfo: { name: string } };
+        listed: { tools: Array<{ name: string }> };
+        called: { content: Array<{ text: string }>; isError: boolean };
+        unknown: { content: Array<{ text: string }>; isError: boolean };
+        composite: { content: Array<{ text: string }>; isError: boolean };
+        unauthorized: { status: number; body: { error: string } };
+      };
+    };
+
+    expect(events.some((event) => event.type === "error")).toBe(false);
+    expect(exercised.mcp.initialized.serverInfo.name).toBe("homerail-tools");
+    expect(exercised.mcp.listed.tools.map((tool) => tool.name)).toEqual(["handoff"]);
+    expect(exercised.mcp.called).toEqual({
+      content: [{ type: "text", text: "accepted:done" }],
+      isError: false,
+    });
+    expect(exercised.mcp.unknown).toEqual({
+      content: [{ type: "text", text: "Unknown tool: missing" }],
+      isError: true,
+    });
+    expect(exercised.mcp.composite).toEqual({
+      content: [{ type: "text", text: "Unknown tool: mcp__homerail__handoff" }],
+      isError: true,
+    });
+    expect(exercised.mcp.unauthorized).toEqual({
+      status: 403,
+      body: { error: "forbidden" },
+    });
+    expect(calls).toEqual([{
+      args: { port: "done", content: { ok: true } },
+      toolCallId: "3",
+    }]);
   });
 
   it("passes a model-declared reasoning selector and wire mapping to DSH", async () => {
@@ -256,6 +324,13 @@ describe("DeepSeekHarnessAdapter", () => {
       },
     }));
     await vi.waitFor(() => expect(existsSync(readyFile)).toBe(true));
+    const bindingProbe = controller.steer({
+      commandId: "cancel-binding-probe",
+      content: "remain active until cancelled",
+    });
+    expect(bindingProbe.status).toBe("accepted");
+    if (bindingProbe.status !== "accepted") throw new Error("binding probe was not accepted");
+    await expect(bindingProbe.applied).resolves.toEqual({ status: "applied" });
 
     await expect(controller.interrupt("stop now")).resolves.toEqual({ status: "interrupted" });
     const events = await eventsPromise;

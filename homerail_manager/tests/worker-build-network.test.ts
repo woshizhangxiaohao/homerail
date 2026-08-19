@@ -162,6 +162,8 @@ describe("resolveWorkerBuildNetwork", () => {
     "https://mirrors.example.com/deb%ian",
     "https://mirrors.example.com/deb|ian",
     "https://mirrors.example.com/deb^ian",
+    "https://mirrors.example.com/deb$(touch)/ian",
+    "https://mirrors.example.com/deb(ian)",
     "https://mirrors.example.com/deb[ian",
     "https://mirrors.example.com/deb]ian",
   ];

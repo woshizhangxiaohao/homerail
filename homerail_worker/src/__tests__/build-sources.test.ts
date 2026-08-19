@@ -222,6 +222,8 @@ describe("Worker deb822 source override helper", () => {
       "https://mirror.example.com/deb%ian",
       "https://mirror.example.com/deb|ian",
       "https://mirror.example.com/deb^ian",
+      "https://mirror.example.com/deb$(touch)/ian",
+      "https://mirror.example.com/deb(ian)",
       "https://mirror.example.com/deb[ian",
       "https://mirror.example.com/deb]ian",
       "https://ex\u00e4mple.example.com/debian",
