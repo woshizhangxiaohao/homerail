@@ -25,7 +25,7 @@ ARG HOMERAIL_WORKER_BUILD_APT_MIRROR
 ARG HOMERAIL_WORKER_BUILD_APT_SECURITY_MIRROR
 ARG NPM_CONFIG_REGISTRY
 ARG HOMERAIL_DSH_FORK_REPOSITORY=https://github.com/xiaotianfotos/deepseek-harness.git
-ARG HOMERAIL_DSH_FORK_COMMIT=554b7b931a503f8af98614dc8002862f13eb9298
+ARG HOMERAIL_DSH_FORK_COMMIT=dc04fa3dbdcedc512322fff199b5cfef9169ea21
 COPY homerail_worker/scripts/configure-apt-sources.mjs /opt/homerail/scripts/configure-apt-sources.mjs
 RUN node /opt/homerail/scripts/configure-apt-sources.mjs
 RUN apt-get update \

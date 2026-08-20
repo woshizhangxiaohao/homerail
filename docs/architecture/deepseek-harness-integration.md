@@ -1,15 +1,17 @@
 # DeepSeek Harness integration (WIP)
 
 Status: experimental Draft integration, validated against fork commit
-`554b7b931a503f8af98614dc8002862f13eb9298` on 2026-08-19. That commit
-merges the current official `master` into the HomeRail integration branch.
+`dc04fa3dbdcedc512322fff199b5cfef9169ea21` on 2026-08-21. That commit
+merges official `dsh-v0.1.0-rc.8` (`141eb6fef83422698aef7a981029e843e8161534`)
+into the HomeRail integration branch.
 
 HomeRail uses the owner-maintained
 [`xiaotianfotos/deepseek-harness`](https://github.com/xiaotianfotos/deepseek-harness)
 fork. The integration branch is `agent/homerail-sdk-control` and tracks the
 official repository through explicit merge commits. The fork carries the HomeRail
 composition, SDK steering and cancellation requests, and an initialization
-barrier that prevents a first prompt from racing asynchronous MCP discovery.
+contract compatible with the official runtime-readiness barrier, which prevents
+a first prompt from racing asynchronous MCP discovery.
 
 ## Runtime boundary
 
