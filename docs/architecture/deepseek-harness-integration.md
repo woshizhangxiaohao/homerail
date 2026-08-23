@@ -1,8 +1,8 @@
 # DeepSeek Harness integration (WIP)
 
 Status: experimental Draft integration, validated against fork commit
-`dc04fa3dbdcedc512322fff199b5cfef9169ea21` on 2026-08-21. That commit
-merges official `dsh-v0.1.0-rc.8` (`141eb6fef83422698aef7a981029e843e8161534`)
+`f4fd5f005636cdcbf9d95f70f04d05afa8c0db54` on 2026-08-23. That commit
+merges official `dsh-v0.1.1-rc.2` (`b150a551b8d465e31e418e1b2eaf5e79bbb7d28e`)
 into the HomeRail integration branch.
 
 HomeRail uses the owner-maintained

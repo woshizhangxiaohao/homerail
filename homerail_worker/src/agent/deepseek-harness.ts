@@ -34,7 +34,7 @@ import { WORKER_RUNTIME_VERSION } from "../runtime-version.js";
 const DEFAULT_DSH_RUNTIME_COMMAND = "dsh-jsonrpc-agent-pkg";
 const DEFAULT_DSH_MAX_TOKENS = 32_768;
 const DEFAULT_DSH_CONTEXT_WINDOW = 200_000;
-const DSH_FORK_COMMIT = "dc04fa3dbdcedc512322fff199b5cfef9169ea21";
+const DSH_FORK_COMMIT = "f4fd5f005636cdcbf9d95f70f04d05afa8c0db54";
 const MCP_TOOL_PREFIX = "mcp__homerail__";
 const DEFAULT_SYSTEM_PROMPT = "You are a HomeRail DAG worker. Complete the assigned task and call the provided handoff tool exactly once.";
 
